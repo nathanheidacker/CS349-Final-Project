@@ -2,6 +2,7 @@ import math
 import datetime
 import numpy as np
 import csv
+import matplotlib.pyplot as plt
 from copy import deepcopy
 
 def cdf(x):
@@ -11,10 +12,6 @@ def cdf(x):
 	"""
 	return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
-def getWeekday(date):
-	info = date.split("/")
-	d = datetime.date(int(info[2]), int(info[0]), int(info[1]))
-	return d.weekday()
 
 def black_scholes(spot, strike, rfr, ttm, vol):
 	"""
@@ -46,70 +43,38 @@ def black_scholes(spot, strike, rfr, ttm, vol):
 	call_premium = (cdf(d1) * spot) - (cdf(d2) * strike * math.pow(math.e, -1 * (rfr * ttm)))
 	return call_premium
 
-def algoDict(filepath, year):
-    year = str(year)
-    reader = csv.reader(open(filepath), delimiter=',')
-    algoDict = {}
-    for line in reader:
-        if year in line[0]:
-            algoDict[line[0]] = (line[1], line[2])
-    return algoDict
+class Valuation:
+	"""
+	A valuation of an asset, tied to a specific date.
+	Valuations do not require a date in some cases, such as:
+		* Initialized asset value
+		* Constant value over time
+		* Unknown valuation date
 
-def covered_calls(principal, security, year):
+	"""
+	def __init__(self, price, date=None):
+		self.price = price
+		self.date = date
 
-    #Initialization
-    totalValue = principal
-    portfolio = 0
-    cash = totalValue - portfolio
-    curr = Call(0, 0, 0)
-    invested = False
-    callSold = False
-    assignments = 0
-    data = algoDict(security, year)
+class Asset:
+	"""
+	Base class for financial assets.
+	Carries some basic information shared among all assets
+	"""
+	def __init__(self, price, volume):
+		self.asset_type = None
+		self.basis = price
+		self.volume = volume
+		self.spot = Valuation(price)
 
-    expiries = {0:2, 1:2, 2:4, 3:4, 4:0}
-
-    #Algorithm Loop
-    for date in data:
-        price = float(data[date][0])
-        closePrice = float(data[date][1])
-
-        #Invest available money into shares
-        if not invested:
-            shares = int(round(totalValue / price, -2)) if round(totalValue / price, -2) < (totalValue / price) else int(round(totalValue / price, -2) - 100)
-            portfolio = (shares * price, shares)
-            cash = totalValue - portfolio[0]
-            invested = True
-
-        #Sell calls for shares available to cover
-        if not callSold:
-            contracts = portfolio[1] / 100
-            premium = 0.7 * black_scholes(price, round((portfolio[0] / portfolio[1]) + 1), 0.08, 2/365, 0.12)
-            totalValue += premium * contracts * 100
-            cash += premium * contracts * 100
-            curr = Call(round((portfolio[0] / portfolio[1]) + 1), expiries[getWeekday(date)], premium)
-            callSold = True
-
-        #Check if calls have been assigned
-        if getWeekday(date) == curr.expiry:
-            callSold = False
-            if closePrice > curr.strike:
-                assignments += 1
-                cash += portfolio[1] * curr.strike
-                portfolio = (0, 0)
-                totalValue = cash
-                invested = False
-
-    return round(totalValue, 2), assignments
-
-
-class Stock:
+class Stock(Asset):
+	"""
+	Class representing a financial security
+	"""
 	def __init__(self, ticker, price, volume):
+		super(Stock, self).__init__(price, volume)
 		self.asset_type = "stock"
 		self.ticker = ticker
-		self.basis = price
-		self.spot = (price, None)
-		self.volume = volume
 
 	def __str__(self):
 		return "({} {} shares @ ${})".format(
@@ -132,49 +97,83 @@ class Stock:
 			return ValueError("Can not combine two stock positions \
 				in different companies")
 
-	def value(self, value, date):
+	def __sub__(self, other):
+		if self.ticker == other.ticker:
+			self_total = self.basis 
+
+	def valuate(self, value, date):
 		"""
 		updates the current spot price of the asset
 		"""
-		self.spot = (value, date)
+		self.spot = Valuation()
 
-class Call:
-	def __init__(self, strike, expiry, premium):
-		self.strike = strike
-		self.premium = premium
-		self.expiry = expiry
-
-class Call2:
+class Option(Asset):
+	"""
+	Base class for financial derivate type options
+	"""
 	def __init__(self, ticker, strike, expiry, premium, volume):
-		self.asset_type = "call"
+		super(Option, self).__init__(price, volume)
 		self.ticker = ticker
 		self.strike = strike
 		self.expiry = expiry
-		self.basis = premium
-		self.spot = (premium, None)
-		self.volume = volume
+
+
+class Call(Option):
+	"""
+	Class representing american call options
+	"""
+	def __init__(self, ticker, strike, expiry, premium, volume):
+		super(Call, self).__init__(ticker, strike, expiry, premium, volume)
+		self.asset_type = "call"
 
 	def __str__(self):
-		if self.volume > 1:
-			return "({} ${} {} ({}))".format(
-				self.ticker,
-				self.strike,
-				self.expiry.isoformat(),
-				self.volume
-				)
-		else:
-			return "({} ${} {})".format(
-				self.ticker,
-				self.strike,
-				self.expiry.isoformat(),
-				)
+		return "({} ${}C {} ({}))".format(
+			self.ticker,
+			self.strike,
+			self.expiry.isoformat(),
+			self.volume
+			)
 
 	def __repr__(self):
 		return str(self)
 
-	def value(self, value, date):
+	def valuate(self, value, date):
 		"""
-		updates the current spot price of the asset
+		updates the spot price of the asset
+		"""
+		if self.expiry > date:
+			self.spot = (0, date)
+		else:
+			self.spot = (value, date)
+
+	def expire(self):
+
+
+	def black_scholes_valuate(self):
+		pass
+
+class Put(Option):
+	"""
+	Class representing american put options
+	"""
+	def __init__(self, ticker, strike, expiry, premium, volume):
+		super(Call, self).__init__(ticker, strike, expiry, premium, volume)
+		self.asset_type = "put"
+
+	def __str__(self):
+		return "({} ${}P {} ({}))".format(
+			self.ticker,
+			self.strike,
+			self.expiry.isoformat(),
+			self.volume
+			)
+
+	def __repr__(self):
+		return str(self)
+
+	def valuate(self, value, date):
+		"""
+		updates the spot price of the asset
 		"""
 		if self.expiry > date:
 			self.spot = (0, date)
@@ -183,12 +182,17 @@ class Call2:
 
 
 class Portfolio:
-	def __init__(self, initial, start_date):
+	def __init__(self, initial, start_date, risk_free_rate=0.08):
+		self.risk_free_rate = risk_free_rate
 		self.positions = \
 			{
 			"cash": initial,
 			"stock": [],
-			"call": []
+			"short_stock": [],
+			"call": [],
+			"short_call": [],
+			"put" : [],
+			"short_put": []
 			}
 		self.history = {start_date.isoformat(): self.positions}
 
@@ -252,6 +256,20 @@ class Portfolio:
 			self.positions[position.asset_type].remove(position)
 			self.history[date.isoformat()] = deepcopy(self.positions)
 
+	def short(self, position, date):
+		"""
+		used to short a position
+		"""
+
+
+
+	def valuate(self, date):
+		"""
+		automatically updates the values of all positions
+		currently held.
+		"""
+		pass
+
 	def _value(self, date):
 		"""
 		value helper
@@ -259,9 +277,9 @@ class Portfolio:
 		x = self.history[date.isoformat()]
 		total = x["cash"]
 		for position in x["stock"] + x["call"]:
-			if position.spot[1] != date:
-				position.value()
-			total += position.spot
+			if position.spot.date != date:
+				position.valuate()
+			total += position.spot.value
 		return np.array([date.isoformat(), total])
 
 	def value(self, date=None):
@@ -273,9 +291,23 @@ class Portfolio:
 		if date:
 			return _value(date)[1]
 		else:
-			result - []
+			result = []
 			for date in self.history:
 				result.append(_value(date))
 			return np.array(result)
+
+	def show_history(self):
+		"""
+		Produces a matplotlib line graph of the current
+		portfolio history
+		"""
+		value_history =  self.value()
+		x = value_history[0]
+		y = value_history[1]
+		plt.plot(x, y, label="Account Value")
+		plt.xlabel("Date")
+		plt.ylabel("Portfolio Value (USD)")
+		plt.title("Portfolio Performance")
+		plt.show()
 
 

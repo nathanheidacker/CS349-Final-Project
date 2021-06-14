@@ -6,7 +6,7 @@ from sklearn.preprocessing import MinMaxScaler
 import datetime
 import time
 from data import load_data
-from algorithms import models, run_model, finance
+from algorithms import models, finance
 
 # TESTING
 
@@ -81,15 +81,3 @@ plt.legend()
 plt.show()
 
 # COVERED CALL GRAPHS
-assignments = []
-value = []
-tv = 50000
-for year in [str(x) for x in range(1994, 2020)]:
-	tv, a = finance.covered_calls(tv, "data/spy-new.csv", year)
-	assignments.append(a)
-	value.append(tv)
-
-plt.plot(assignments)
-plt.show()
-plt.plot(value)
-plt.show()

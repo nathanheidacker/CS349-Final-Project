@@ -27,6 +27,7 @@ def split_data(stock, lookback, split):
 
 	return [x_train, y_train, x_test, y_test]
 
+
 def spy_price_data():
 	"""
 	Returns spy closing price data
