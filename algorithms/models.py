@@ -58,7 +58,7 @@ class Call_Strike_Regressor(nn.Module):
         return self.out(x)
 
 
-def train_rnn(model, train_features, train_targets, num_epochs=100, threshold=1e-6, criterion=None, optimiser=None):
+def train_rnn(model, train_features, train_targets, num_epochs=100, threshold=1e-5, criterion=None, optimiser=None):
     """
     Performs training on a model given training data
     Used for recurrent NNs

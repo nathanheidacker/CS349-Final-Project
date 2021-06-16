@@ -1,6 +1,7 @@
 import math
 import datetime
 import numpy as np
+import datetime
 import csv
 import matplotlib.pyplot as plt
 from copy import deepcopy
@@ -67,11 +68,20 @@ class Asset:
 		self.volume = volume
 		self.spot = Valuation(price)
 
+class Currency(Asset):
+	"""
+	Base class for currency assets
+	"""
+	def __init__(self, price, volume):
+		super(Currency, self).__init__(price, volume)
+		super.
+
+
 class Stock(Asset):
 	"""
 	Class representing a financial security
 	"""
-	def __init__(self, ticker, price, volume):
+	def __init__(self, price, volume, ticker):
 		super(Stock, self).__init__(price, volume)
 		self.asset_type = "stock"
 		self.ticker = ticker
@@ -80,7 +90,7 @@ class Stock(Asset):
 		return "({} {} shares @ ${})".format(
 			self.volume, 
 			self.ticker, 
-			self.basis
+			self.spot.price
 			)
 
 	def __repr__(self):
@@ -101,18 +111,21 @@ class Stock(Asset):
 		if self.ticker == other.ticker:
 			self_total = self.basis 
 
-	def valuate(self, value, date):
+	def valuate(self, price, date=None):
 		"""
 		updates the current spot price of the asset
 		"""
-		self.spot = Valuation()
+		self.spot = Valuation(price, date)
+
+	def auto_valuate(self):
+		pass
 
 class Option(Asset):
 	"""
 	Base class for financial derivate type options
 	"""
-	def __init__(self, ticker, strike, expiry, premium, volume):
-		super(Option, self).__init__(price, volume)
+	def __init__(self, premium, volume, ticker, strike, expiry):
+		super(Option, self).__init__(premium, volume)
 		self.ticker = ticker
 		self.strike = strike
 		self.expiry = expiry
@@ -122,8 +135,8 @@ class Call(Option):
 	"""
 	Class representing american call options
 	"""
-	def __init__(self, ticker, strike, expiry, premium, volume):
-		super(Call, self).__init__(ticker, strike, expiry, premium, volume)
+	def __init__(self, premium, volume, ticker, strike, expiry):
+		super(Call, self).__init__(premium, volume, ticker, strike, expiry)
 		self.asset_type = "call"
 
 	def __str__(self):
@@ -147,17 +160,28 @@ class Call(Option):
 			self.spot = (value, date)
 
 	def expire(self):
+		pass
 
+	def exercise(self):
+		pass
 
 	def black_scholes_valuate(self):
 		pass
+
+class Short_Call(Call):
+	"""
+	Class representing a call that has been sold
+	"""
+	def __init__(self, premium, volume, ticker, strike, expiry, collateral):
+		self.asset_type = "short_call"
+		self.collateral = collateral
 
 class Put(Option):
 	"""
 	Class representing american put options
 	"""
-	def __init__(self, ticker, strike, expiry, premium, volume):
-		super(Call, self).__init__(ticker, strike, expiry, premium, volume)
+	def __init__(self, premium, volume, ticker, strike, expiry):
+		super(Call, self).__init__(premium, volume, ticker, strike, expiry)
 		self.asset_type = "put"
 
 	def __str__(self):
@@ -182,8 +206,29 @@ class Put(Option):
 
 
 class Portfolio:
-	def __init__(self, initial, start_date, risk_free_rate=0.08):
+	"""
+	Class representing a portfolio which carries a set of financial
+	positions, and a history of those positions across time.
+
+	Arguments:
+		initial {float / int}: A number value representing the initial
+			capital in the portfolio, or the principal investment
+		start_date {datetime.date / string}: A datetime.date object
+			which represents the starting point of the portfolio.
+			Can also be passed in as a date isoformat string
+			"YYYY-MM-DD"
+		risk_free_rate {float}: A float value indicating the annual
+			growth of capital that can be achieved without assuming
+			any risk. Default value is the average annual index
+			return (8%)
+		margin {float}: A float value that acts as a multiplier of
+			the total account value to determine how much
+	"""
+	def __init__(self, initial, start_date, risk_free_rate=0.08, margin=None):
+		self.maintenance_requirement = margin
 		self.risk_free_rate = risk_free_rate
+		if type(start_date) == str:
+			start_date = datetime.date.fromisoformat(start_date)
 		self.positions = \
 			{
 			"cash": initial,
@@ -194,7 +239,8 @@ class Portfolio:
 			"put" : [],
 			"short_put": []
 			}
-		self.history = {start_date.isoformat(): self.positions}
+		self.history = {start_date.isoformat(): deepcopy(self.positions)}
+		self.valid_assets = list(self.positions.keys())
 
 	def __str__(self):
 		return "Cash: {} \nStock: {} \nCalls: {} \n".format(
@@ -211,16 +257,19 @@ class Portfolio:
 		self.positions = self.initial
 		self.history = {start: initial}
 
-	def get_all_assets(self):
+	def get_all_assets(self, positions=None):
 		"""
 		returns a list of all assets excluding cash
 		"""
-		result = []
-		for asset_type in list(self.positions.keys())[1:]:
-			for asset in self.positions[asset_type]:
-				result.append(asset)
 
-		return result
+		positions = positions if positions else self.positions
+
+		assets = []
+		for asset_type in list(positions.keys())[1:]:
+			for asset in positions[asset_type]:
+				assets.append(asset)
+
+		return assets
 
 	def invest(self, amount, date):
 		"""
@@ -234,7 +283,7 @@ class Portfolio:
 		"""
 		used to enter an asset position
 		"""
-		if position.asset_type not in ["call", "stock"]:
+		if position.asset_type not in self.valid_assets:
 			raise ValueError("Not a viable asset type")
 		else:
 			self.positions[position.asset_type].append(position)
@@ -245,14 +294,17 @@ class Portfolio:
 		"""
 		used to exit an asset position
 		"""
+		if type(date) == str:
+			date = datetime.date.fromisoformat(date)
+
 		all_assets = self.get_all_assets()
-		if position.asset_type not in ["call", "stock"]:
+		if position.asset_type not in self.valid_assets:
 			raise ValueError("Not a viable asset type")
 		elif position not in all_assets:
 			raise ValueError("Portfolio does not own this position")
 		else:
 			position = next((x for x in all_assets if x == position), None)
-			self.positions['cash'] += position.spot[0] * position.volume
+			self.positions['cash'] += position.spot.price * position.volume
 			self.positions[position.asset_type].remove(position)
 			self.history[date.isoformat()] = deepcopy(self.positions)
 
@@ -260,7 +312,7 @@ class Portfolio:
 		"""
 		used to short a position
 		"""
-
+		pass
 
 
 	def valuate(self, date):
@@ -272,42 +324,80 @@ class Portfolio:
 
 	def _value(self, date):
 		"""
-		value helper
+		Value helper, not for outside use.
 		"""
-		x = self.history[date.isoformat()]
+
+		# all_assets must be the assets from this date
+		all_assets = self.get_all_assets(self.history[date])
+
+		x = self.history[date]
 		total = x["cash"]
-		for position in x["stock"] + x["call"]:
+		for position in all_assets:
 			if position.spot.date != date:
-				position.valuate()
-			total += position.spot.value
-		return np.array([date.isoformat(), total])
+				position.auto_valuate()
+			total += position.spot.price * position.volume
+		return np.array([date, total])
 
 	def value(self, date=None):
 		"""
 		Returns total portfolio value at a specified date.
 		If the date is not specified, returns an np.array containing
-		total portfolio value at each date
+		total portfolio value at each date.
 		"""
 		if date:
 			return _value(date)[1]
 		else:
 			result = []
 			for date in self.history:
-				result.append(_value(date))
+				result.append(self._value(date))
 			return np.array(result)
 
 	def show_history(self):
 		"""
 		Produces a matplotlib line graph of the current
-		portfolio history
+		portfolio history.
 		"""
 		value_history =  self.value()
-		x = value_history[0]
-		y = value_history[1]
+		x = value_history[:, 0]
+		y = value_history[:, 1]
 		plt.plot(x, y, label="Account Value")
 		plt.xlabel("Date")
 		plt.ylabel("Portfolio Value (USD)")
 		plt.title("Portfolio Performance")
 		plt.show()
+
+	def print_positions(self, positions=None, date=None):
+		"""
+		prints a formatted version of current portfolio
+		positions. Positions and dates can be given to
+		alter output.
+		"""
+
+		# Can print alternate positions given at a different date
+		print_date = date if date else "CURRENT"
+		positions = positions if positions else self.positions
+
+		print("\n{} POSITIONS\n--------------------".format(print_date))
+		for asset_type, assets in positions.items():
+			if asset_type == "cash":
+				print("{}: ${}".format(asset_type, assets))
+			elif assets:
+				result = "{}: ".format(asset_type)
+				for i, asset in enumerate(assets):
+					result += str(asset)
+					if i < len(assets) - 1:
+						result += ", "
+				print(result)
+		print("--------------------\n")
+
+
+	def print_history(self):
+		"""
+		prints a formatted version of the portfolio history
+		"""
+		for date, positions in self.history.items():
+			self.print_positions(positions, date)
+
+
 
 

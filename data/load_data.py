@@ -36,7 +36,7 @@ def spy_price_data():
 	return data
 
 
-def load_spy_data(lookback=20, split=0.2):
+def load_RNN_spy_data(lookback=20, split=0.2):
 	"""
 	Returns spy data formatted for NN training
 	"""
