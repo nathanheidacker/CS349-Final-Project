@@ -26,14 +26,20 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 		returns alpha?
 	"""
 
-	# Convert all start_date inputs to datetime objects, grab
-	# portfolio start date if none is given
+	# Convert all start_date inputs to datetime objects
+	# Make sure that the 
+	# Use portfolio start date if none is given
+	portfolio_start = datetime.date.fromisoformat(list(portfolio.history.keys())[0])
 	if start_date:
 		if type(start_date) == str:
 			start_date = datetime.date.fromisoformat(start_date)
+		if start_date < portfolio_start:
+			raise ValueError("Provided start date ({}) is before\
+				the beginning of the portfolio ({})".format(
+					start_date,
+					portfolio_start))
 	else:
-		start_date = list(portfolio.history.keys())[0]
-		start_date = datetime.date.fromisoformat(start_date)
+		start_date = portfolio_start
 
 	# Convert all end_date inputs to datetime objects, iterate
 	# until today's date if none is given
@@ -52,9 +58,10 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 
 		# Grabbing row values that correspond to current_date
 		current_data = data.loc[data["Date"] == current_date.isoformat()]
-		if not today.empty:
+		if not current_data.empty:
 			open_price = current_data.iloc[0]["Open"]
 			available_cash = portfolio.positions["cash"]
+
 			spy_today = finance.Stock("SPY", open_price, 100)
 
 
