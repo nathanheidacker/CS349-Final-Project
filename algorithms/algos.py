@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 import datetime
 from algorithms import finance, models
+import algorithms.algorithm_helpers as helpers
 from data import load_data
 
 def spy_covered_calls(portfolio, start_date=None, end_date=None):
@@ -12,62 +13,59 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 	the present day
 
 	Arguments:
-		portfolio: a finance.portfolio object on which the algorithm
+		portfolio {Portfolio}: 
+			a finance.portfolio object on which the algorithm
 			is performed
-		start_date: a datetime.date object that marks the starting
-			point of the algorithm. Can also be passed in as an 
-			iso-formatted date string: "YYYY-MM-DD"
-		end_date: a datetime.date object that marks the ending
-			point of the algorithm. Can also be passed in as an 
-			iso-formatted date string: "YYYY-MM-DD". Optional
+
+		start_date {Date / Timedelta / Str}: 
+			Date: A datetime.date object that acts as the end
+			point of the algorithm
+
+			Timedelta: A datetime.timedelta object that acts as
+			the time to perform the algorithm from the start date
+
+			Str: A iso-formatted date string ("YYYY-MM-DD") that
+			acts as the end point of the algorithm
+
+		end_date {Date / Timedelta / Str}: 
+			Date: A datetime.date object that acts as the end
+			point of the algorithm
+
+			Timedelta: A datetime.timedelta object that acts as
+			the time to perform the algorithm from the start date
+
+			Str: A iso-formatted date string ("YYYY-MM-DD") that
+			acts as the end point of the algorithm
+
+			Note - end_date is INCLUSIVE, algorithm will continue
+			until the portfolio.date EXCEEDS the end_date
 
 	Returns:
-		modifies the portfolio passed into portfolio
-		returns alpha?
+		Modifies the portfolio passed into the input
+
 	"""
 
-	# Convert all start_date inputs to datetime objects
-	# Make sure that the 
-	# Use portfolio start date if none is given
-	portfolio_start = datetime.date.fromisoformat(list(portfolio.history.keys())[0])
-	if start_date:
-		if type(start_date) == str:
-			start_date = datetime.date.fromisoformat(start_date)
-		if start_date < portfolio_start:
-			raise ValueError("Provided start date ({}) is before\
-				the beginning of the portfolio ({})".format(
-					start_date,
-					portfolio_start))
-	else:
-		start_date = portfolio_start
-
-	# Convert all end_date inputs to datetime objects, iterate
-	# until today's date if none is given
-	if end_date:
-		if type(end_date) == str:
-			end_date = datetime.date.fromisoformat(end_date)
-	else:
-		end_date = datetime.date.today()
-
 	# Variable initialization, getting data
+	_, end_date = helpers.initialize(portfolio, start_date, end_date)
 	data = pd.read_csv("data/spy.csv")
-	current_date = start_date
 
 	# Ending criteria, end_date is the last date we process
-	while current_date <= end_date:
+	while portfolio.date < end_date:
 
 		# Grabbing row values that correspond to current_date
-		current_data = data.loc[data["Date"] == current_date.isoformat()]
+		current_data = data.loc[data["Date"] == portfolio.date.isoformat()]
+
+		# Perform algorithm when data is available
 		if not current_data.empty:
 			open_price = current_data.iloc[0]["Open"]
 			available_cash = portfolio.positions["cash"]
 
-			spy_today = finance.Stock("SPY", open_price, 100)
+			spy = finance.Stock(open_price, 100, "SPY")
 
 
 
 		# Trading day is over, increment day
-		current_date += datetime.timedelta(days=1)
+		portfolio.next_day()
 
 
 
