@@ -1,6 +1,7 @@
 import math
 import datetime
 import numpy as np
+import pandas as pd
 import datetime
 import csv
 import matplotlib.pyplot as plt
@@ -70,13 +71,31 @@ class Asset:
 			used to track the asset price across time.
 	"""
 
-	def __init__(self, asset_type, name, price, date=None, data=None, fractional=True):
+	def __init__(self, asset_type, name, price, date=None, data=None, fractional=True, viable_collateral=None):
+
+		# Attribute intialization
 		self.type = asset_type
 		self.name = name
-		self.price = price
+		self.price = None if price == None else float(price)
 		self.date = datetime.date.fromisoformat(date) if type(date) == str else date
-		self.data = data
 		self.fractional = fractional
+		self.viable_collateral = viable_collateral if viable_collateral else []
+		self.data = pd.DataFrame()
+
+		# Making sure data is a dataframe object, otherwise object cant be initialized
+		if type(data) == str:
+			self.data = pd.read_csv(data)
+		elif type(data) == np.array:
+			self.data = pd.DataFrame(data)
+		elif type(data) == type(None):
+			self.data = pd.DataFrame()
+		elif type(data) == pd.DataFrame:
+			self.data = data
+		else:
+			try:
+				self.data = pd.DataFrame(data)
+			except:
+				raise ValueError("Data could not be initialized")
 
 	def __str__(self, symbol="$"):
 		return "({} {}, {}{})".format(self.name, self.type, symbol, self.price)
@@ -84,9 +103,84 @@ class Asset:
 	def __repr__(self):
 		return self.__str__()
 
-	def valuate(self, date):
-		if data:
-			self.price = data.loc[data["Date"] == date.isoformat()].iloc[0]["Open"]
+	def next_day(self):
+		self.date = self.date + datetime.timedelta(days=1) if self.date else None
+
+	def valuate(self, column="Open"):
+		if self.type == "cash":
+			pass
+		elif self.date and not self.data.empty:
+			data = self.data.loc[self.data["Date"] == self.date.isoformat()]
+			if not data.empty:
+				self.price = float(data.iloc[0][column])
+			else:
+				print("No price data for {} on {}".format(self, self.date.isoformat()))
+		else:
+			error = "Missing data for valuation of {}".format(self) if self.date else "Missing date for valuation"
+			print(error)
+
+class Stock(Asset):
+	def __init__(self, name, data, date):
+
+		# Attribute initialization
+		super(Stock, self).__init__("stock", name, None, date, data, True, ["stock", "cash"])
+
+		#Valuate the position if we can
+		if self.data.empty:
+			raise ValueError("Incompatible dataset")
+
+		# Trying to find a viable starting price
+		last_date = datetime.date.fromisoformat(self.data.iloc[-1]["Date"])
+		while not self.price:
+
+			# Terminate search for price data if we've reached the end
+			if self.date > last_date:
+				raise ValueError("No price data available after {}, use an earlier date".format(date.isoformat()))
+
+			# Try to valuate the position at the current date, move to the next day
+			self.valuate()
+			self.next_day()
+
+		# Reset date to date given
+		self.date = datetime.date.fromisoformat(date) if type(date) == str else date
+
+class Option(Asset):
+	def __init__(self, underlying, strike, expiry):
+
+		# Attribute initialization
+		super(Option, self).__init__(
+			asset_type = "option", 
+			name = underlying.name, 
+			price = None, 
+			date = underlying.date, 
+			data = None,
+			fractional = False,
+			viable_collateral = underlying.viable_collateral)
+		self.underlying = underlying
+		self.strike = float(strike)
+		self.expiry = None
+
+		# Determining expiry
+		if type(expiry) == str:
+			self.expiry = datetime.date.fromisoformat(expiry)
+		elif type(expiry) == int:
+			self.expiry = self.date + datetime.timedelta(days=expiry)
+		elif type(expiry) == datetime.timedelta:
+			self.expiry = self.date + expiry
+		elif type(expiry) == datetime.date:
+			self.expiry = expiry
+		else:
+			raise ValueError("Invalid expiry for option initialization")
+
+		# Determining option price
+		self.price = self.underlying.price
+
+class Call(Option):
+	def exercise(self):
+		pass
+
+	def expire(self):
+		pass
 
 
 
@@ -129,6 +223,8 @@ class Position:
 		if self.short: 
 			if not self.collateral:
 				raise ValueError("Short position must have collateral")
+			elif self.collateral.short:
+				raise ValueError("Collateral for short positions must long")
 			elif self.value > self.collateral.value:
 				raise ValueError("Insufficient collateral for this short position")
 
@@ -197,14 +293,13 @@ class Position:
 
 		self.value -= other.value
 		self.volume -= other.volume
-		self.basis = self.value / self.volume
 
 		self.update_history()
 
 		return self
 
 	def __str__(self, symbol="$"):
-		return "({} x {} @ {}{})".format(self.asset.__str__(symbol), self.volume, symbol, self.basis)
+		return "({} x {} @ {}{})".format(self.asset.__str__(symbol), self.volume, symbol, round(self.basis, 2))
 
 	def __repr__(self):
 		return self.__str__()
@@ -214,8 +309,17 @@ class Position:
 		Updates the value of the position based on the value
 		of the underlying asset
 		"""
-		self.value = self.asset.price * self.volume
+		# The new valuation
+		valuation = self.asset.price * self.volume
 
+		# If the position is shorted, we need to ensure that the
+		# value of the collateral matches
+		if self.short:
+			self.collateral.valuate()
+			if self.collateral.value != self.value:
+				raise ValueError("\n{}\nInsufficient collateral for this position".format(self))
+
+		self.value = valuation
 		self.update_history()
 
 	def update_history(self):
@@ -224,8 +328,7 @@ class Position:
 		date
 		"""
 		if self.date:
-			new_self = deepcopy(self)
-			new_self.history = None
+			new_self = deepcopy(self.value)
 			self.history[self.date.isoformat()] = new_self
 
 class Cash(Position):
@@ -263,8 +366,10 @@ class Cash(Position):
 			"GBP": "£"
 			}[currency_code]
 
+		self.update_history()
 
-	def __str__(self, _)
+
+	def __str__(self, _):
 		return "({}{})".format(self.symbol, self.volume)
 
 
@@ -305,32 +410,44 @@ class Portfolio:
 			portfolio is capable of purchasing
 
 	"""
-	def __init__(self, initial, start_date, basis="USD", risk_free_rate=0.08, margin=None, valid_assets=[]):
+	def __init__(self, initial, start_date, basis="USD", risk_free_rate=0.08, margin=None, valid_assets=None):
 
 		# Accept string inputs for the start date
 		start_date = datetime.date.fromisoformat(start_date) if type(start_date) == str else start_date
 
+		# Initializing portfolio positions
 		self.positions = {"cash": [Cash(initial, basis)]}
-		self.maintenance_requirement = margin
-		self.risk_free_rate = risk_free_rate
 		self.date = start_date
-		self.history = {start_date.isoformat(): deepcopy(self.positions)}
-		self.valid_assets = valid_assets
+
+		# Initializing history
+		self.history = {}
+		self.update_history()
+
+		# Initializing other attributes
+		self.basis = basis
+		self.basis_symbol = self.positions["cash"][0].symbol
+		self.risk_free_rate = risk_free_rate
+		self.maintenance_requirement = margin
+		self.valid_assets = [] if valid_assets == None else valid_assets
 
 	def __str__(self):
+
+		# Accumulate string representing all portfollio positions
 		result = ""
 		for asset_type, positions in self.positions.items():
 			pos_string = ""
 			for position in positions:
-				pos_string += "{}, ".format(position.__str__(self.positions["cash"][0].symbol))
+				pos_string += "{}, ".format(position.__str__(self.basis_symbol))
 			result += "{}: {}\n".format(asset_type, pos_string[:-2])
+
+		# If result is empty, declare the portfolio empty
 		if result:
 			return result[:-1]
 		else:
 			return "Empty portfolio"
 
 	def __repr__(self):
-		return str(self)
+		return self.__str__()
 
 	def reset(self):
 		"""
@@ -368,13 +485,31 @@ class Portfolio:
 		Used to update the history of the portfolio on
 		the portfolio's current date.
 		"""
-		self.history[self.date.isoformat()] = deepcopy(self.positions)
+		new_positions = deepcopy(self.positions)
+		for position in self.list_positions(new_positions):
+			position.asset.data = None
+			position.history = None
+		self.history[self.date.isoformat()] = new_positions
+
+	def synchronise(self):
+		"""
+		Synchronises the date of all positions and all assets contained
+		within the portfolio to be the same date as the portfolio
+		"""
+		for position in self.list_positions():
+			position.date = self.date
+		for asset in self.assets():
+			asset.date = self.date
 
 	def next_day(self):
 		"""
-		Used to 
+		Used to move the portfolio and all of its positions to the next
+		day
 		"""
 		self.date += datetime.timedelta(days=1)
+		self.synchronise()
+		self.valuate()
+		self.update_history()
 
 	def invest(self, amount):
 		"""
@@ -452,7 +587,7 @@ class Portfolio:
 				that match this value.
 
 		Returns:
-			current_position (Asset):
+			current_position (Position):
 				returns the current position in the asset,
 				if any exists. Returns None otherwise. 
 
@@ -476,8 +611,31 @@ class Portfolio:
 		else:
 			return None
 
+	def find_collateral(self, asset, volume):
+		"""
+		Given an asset and volume, finds suitable collateral if any exists
+
+		Arguments:
+			asset {Asset}:
+				an asset object which is used to search for
+				the collateral
+
+			volume (Int / Float):
+				a numeric value indicating the quantity of the asset
+				for which collateral needs to be found
+
+		Returns:
+			collateral (Position):
+				returns a position object which acts as sufficient
+				collateral to cover the asset at the given volume
+
+		"""
+
+		long_position = self.find_position(asset)
+
 	def buy(self, asset, volume):
 		"""
+		*** LONG POSITIONS ONLY ***
 		Used to enter into a new long position
 
 		Arguments:
@@ -494,7 +652,7 @@ class Portfolio:
 			entering the position.
 		"""
 
-		# The position to be entered into
+		# The position to be bought
 		position = Position(asset, volume, self.date)
 
 		# Find the current position in said asset, if any
@@ -533,7 +691,8 @@ class Portfolio:
 
 	def sell(self, asset, volume):
 		"""
-		Used to exit or partially exit an existing long position
+		*** LONG POSITIONS ONLY ***
+		Used to exit or partially exit an existing long position.
 
 		Arguments:
 			asset {Asset}:
@@ -547,12 +706,47 @@ class Portfolio:
 			Modifies the portfolio's positions by selling the asset,
 			exiting the position
 		"""
-		raise NotImplementedError
+		# The position to be sold
+		position = Position(asset, volume, self.date)
+
+		# Find the current position in said asset, if any
+		current_position = self.find_position(asset)
+
+		# Must have a positive purchase volume
+		if volume <= 0:
+			raise ValueError("Not a valid sell volume")
+
+		# Volume must be integer unless otherwise allowed
+		elif not asset.fractional and type(volume) != int:
+			raise ValueError("Can not sell fractional volumes of this asset")
+
+		# We can only sell a position if it is currently owned
+		elif current_position:
+
+			# We can't sell more than we own
+			if volume > current_position.volume:
+				raise ValueError("Position too small to sell {}, only owns {}").format(
+					volume,
+					current_position.volume)
+
+			# 
+			try:
+				current_position -= position
+				self.positions["cash"][0] += position.value
+			except:
+				raise ValueError("Error decrementing current position: {} can not be subtracted from {}").format(
+					position,
+					current_position)
+
+		# The position attempting to be sold is not owned
+		else:
+			print("Unable to find compatible asset to sell")
 
 		self.update_history()
 
 	def short(self, asset, volume):
 		"""
+		*** SHORT POSITIONS ONLY ***
 		Used to enter into a new short position. Sells an asset that
 		the portfolio doesn't own, requiring collateral. 
 
@@ -571,10 +765,46 @@ class Portfolio:
 		"""
 		raise NotImplementedError
 
+		# The position to be shorted
+		position = Position(asset, volume, self.date, short=True)
+
+		# Find the current position in said asset, if any
+		current_position = self.find_position(asset, short=True)
+
+		# Valid purchases only
+		if not self.check_validity(asset):
+			raise ValueError("Can not purchase this type of asset")
+
+		# Must have a positive purchase volume
+		elif volume <= 0:
+			raise ValueError("Not a valid purchase volume")
+
+		# nenenene volume must be integer unless otherwise allowed
+		elif not asset.fractional and type(volume) != int:
+			raise ValueError("Can not purchase fractional volumes of this asset")
+
+		# Try to add to current positions, otherwise add new position
+		else:
+
+			# Decrement cash by the value of the position
+			self.positions["cash"][0] -= position.value
+
+		# Try to add positions, otherwise add the position to the
+		# positions dictionary, creating a new key for that asset
+		# class if none already exists
+		try:
+			current_position += position
+		except:
+			if asset.type in self.positions:
+				self.positions[asset.type].append(position)
+			else:
+				self.positions[asset.type] = [position]
+
 		self.update_history()
 
 	def cover(self, asset, volume):
 		"""
+		*** SHORT POSITIONS ONLY ***
 		Used to exit or partially exist a short position by covering
 		(repurchasing) the short-sold loaned assset.
 
@@ -593,6 +823,42 @@ class Portfolio:
 		"""
 		raise NotImplementedError
 
+		# The short to be covered
+		position = Position(asset, volume, self.date)
+
+		# Find the current position in said asset, if any
+		current_position = self.find_position(asset)
+
+		# Must have a positive purchase volume
+		if volume <= 0:
+			raise ValueError("Not a valid sell volume")
+
+		# Volume must be integer unless otherwise allowed
+		elif not asset.fractional and type(volume) != int:
+			raise ValueError("Can not sell fractional volumes of this asset")
+
+		# We can only sell a position if it is currently owned
+		elif current_position:
+
+			# We can't sell more than we own
+			if volume > current_position.volume:
+				raise ValueError("Position too small to sell {}, only owns {}").format(
+					volume,
+					current_position.volume)
+
+			# 
+			try:
+				current_position -= position
+				self.positions["cash"][0] += position.value
+			except:
+				raise ValueError("Error decrementing current position: {} can not be subtracted from {}").format(
+					position,
+					current_position)
+
+		# The position attempting to be sold is not owned
+		else:
+			print("Unable to find compatible asset to sell")
+
 		self.update_history()
 
 
@@ -601,10 +867,12 @@ class Portfolio:
 		Automatically updates the values of all positions
 		currently held.
 		"""
-		raise NotImplementedError
-
+		for asset in self.assets():
+			asset.valuate()
 		for position in self.list_positions():
 			position.valuate()
+
+		self.update_history()
 
 	def _value(self, date):
 		"""
@@ -612,15 +880,10 @@ class Portfolio:
 		"""
 
 		# all_assets must be the assets from this date
-		all_assets = self.list_positions(self.history[date])
+		all_assets = self.list_positions(self.history[date] if date in self.history else [])
 
-		x = self.history[date]
-		total = 0
-		for position in all_assets:
-			if position.spot.date != date:
-				position.auto_valuate()
-			total += position.spot.price * position.volume
-		return np.array([date, total])
+		value = sum([position.value for position in all_assets])
+		return np.array([date, float(value)])
 
 	def value(self, date=None):
 		"""
@@ -629,12 +892,9 @@ class Portfolio:
 		total portfolio value at each date.
 		"""
 		if date:
-			return _value(date)[1]
+			return self._value(date)[1]
 		else:
-			result = []
-			for date in self.history:
-				result.append(self._value(date))
-			return np.array(result)
+			return np.array([self._value(date) for date in self.history])
 
 	def print_positions(self, positions=None, date=None):
 		"""
@@ -647,11 +907,13 @@ class Portfolio:
 		print_date = date if date else "CURRENT"
 		positions = positions if positions else self.positions
 
+		# Print Body
 		print("\n{} POSITIONS\n--------------------".format(print_date))
+		print("total: {}{}".format(self.basis_symbol, self.value(date if date else self.date)))
 		print_portfolio = Portfolio(0, datetime.date.today())
 		print_portfolio.positions = positions
 		print(print_portfolio)
-		print("--------------------\n")
+		print("--------------------")
 
 
 	def print_history(self):
@@ -668,8 +930,11 @@ class Portfolio:
 		"""
 		value_history =  self.value()
 		x = value_history[:, 0]
-		y = value_history[:, 1]
+		y = value_history[:, 1].astype(float)
 		plt.plot(x, y, label="Account Value")
+		skip = int(len(x) / 5)
+		xlocs = range(len(x))
+		plt.xticks(xlocs[::skip], x[::skip])
 		plt.xlabel("Date")
 		plt.ylabel("Portfolio Value (USD)")
 		plt.title("Portfolio Performance")

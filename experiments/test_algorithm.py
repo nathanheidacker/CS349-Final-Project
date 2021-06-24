@@ -1,28 +1,25 @@
 from algorithms import finance, algos, models
+import pandas as pd
 import datetime
 
 def main():
 
 	# Testing
-	myp = finance.Portfolio(100000, "2000-01-01", basis="JPY")
-	spy = finance.Asset("stock", "spy", 300)
-	print(myp.positions["cash"][0].symbol)
-	myp.next_day()
-	myp.buy(spy, 100)
-	myp.print_positions()
+	start_date = "2005-02-25"
+	myp = finance.Portfolio(100000, start_date, basis="JPY")
+	spy = finance.Stock("SPY", "data/spy.csv", start_date)
+	spy_call = finance.Call(spy, 110, 30)
+	myp.buy(spy, 400)
+	myp.buy(spy_call, 400)
 
-	myp.reset()
-	myp.print_positions()
+	for x in range(1000):
+		myp.next_day()
 
-	"""
-	# Running the algorithm
-	covered_calls = finance.Portfolio(40000, "2005-02-24")
-	algos.spy_covered_calls(covered_calls)
 
-	# Performance Diagnostics
-	covered_calls.print_history()
-	covered_calls.show_history()
-	"""
+	myp.sell(spy, 399)
+	myp.print_history()
+	myp.show_history()
+
 
 if __name__ == "__main__":
 	main()
