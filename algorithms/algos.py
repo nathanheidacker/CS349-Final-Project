@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -44,29 +45,55 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 		Modifies the portfolio passed into the input
 
 	"""
+	# The spy options chain schedule, integer values correspond to days
+	# These values determine the day of expiry for a short sold call given
+	# the weekday it is being sold on
+	expiry_schedule = {
+		0: 0,
+		1: 2,
+		2: 2,
+		3: 4,
+		4: 4,
+	}
 
-	# Variable initialization, getting data
-	_, end_date = helpers.initialize(portfolio, start_date, end_date)
-	data = pd.read_csv("data/spy.csv")
+	# Initialize portfolio
+	start_date, end_date = helpers.initialize(portfolio, start_date, end_date)
+	spy = finance.Stock("SPY", "data/spy.csv", start_date, dividend_yield=0.015)
 
 	# Ending criteria, end_date is the last date we process
-	while portfolio.date < end_date:
+	while portfolio.date <= end_date:
 
-		# Grabbing row values that correspond to current_date
-		current_data = data.loc[data["Date"] == portfolio.date.isoformat()]
+		# Market is closed on weekends
+		if portfolio.date.weekday() < 5:
 
-		# Perform algorithm when data is available
-		if not current_data.empty:
-			open_price = current_data.iloc[0]["Open"]
-			available_cash = portfolio.positions["cash"]
+			# Determine the number of shares we can buy based on our liquid assets
+			stock_purchase_volume = math.floor(portfolio.liquid().value / spy.price / 100) * 100
+			if stock_purchase_volume > 0:
+				portfolio.buy(spy, stock_purchase_volume)
 
-			spy = finance.Stock(open_price, 100, "SPY")
+			# Calculate current spy volume and spy call volume
+			current_spy_volume = getattr(portfolio.position(spy), "volume", 0)
+			current_spy_call_volume = sum([position.volume for position in portfolio.positions.get("call", []) if position.asset.name == "SPY"])
 
+			# The call to be sold
+			spy_call = finance.Call(spy, math.floor(spy.price) + 1, expiry_schedule[portfolio.date.weekday()])
 
+			# Determine number of calls that can be sold out
+			call_short_volume = (current_spy_volume // 100) - current_spy_call_volume
+			if call_short_volume > 0:
+				portfolio.short(spy_call, call_short_volume)
 
-		# Trading day is over, increment day
-		portfolio.next_day()
+			# Evaluate positions at the end of the day
+			# Expired calls will be assigned or expire worthless
+			portfolio.valuate("Close")
 
+		# Go to the next trading day unless today was the last day the algorithm
+		# was to run
+		if portfolio.date == end_date:
+			break
+
+		else:
+			portfolio.next_day("Open")
 
 
 def spy_covered_calls_NN(portfolio, start_date=None, end_date=None):

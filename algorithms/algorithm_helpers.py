@@ -82,6 +82,9 @@ def initialize(portfolio, start_date=None, end_date=None):
 		if type(end_date) == str:
 			end_date = datetime.date.fromisoformat(end_date)
 
+		elif type(end_date) == int:
+			end_date = portfolio.date + datetime.timedelta(days=end_date - 1)
+
 		# Handle datetime.timedelta end_date inputs
 		elif type(end_date) == datetime.timedelta:
 			end_date = portfolio.date + end_date
@@ -93,8 +96,7 @@ def initialize(portfolio, start_date=None, end_date=None):
 
 	# Make sure that end_date is not before start_date
 	if end_date < start_date:
-		raise ValueError("End date {} is before start date {}"\
-			.format(end_date, start_date))
+		raise ValueError("End date {} is before start date {}".format(end_date, start_date))
 
 	return start_date, end_date
 
