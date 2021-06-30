@@ -255,7 +255,15 @@ class Call(Option):
 		elif not self.data.empty:
 			super(Call, self).valuate(column)
 		else:
-			self.price = round(black_scholes_call(self.underlying.price, self.strike, rfr, self.underlying.dividend_yield, ttm, vol), 2)
+			self.price = round(
+				black_scholes_call(
+					self.underlying.price, 
+					self.strike, 
+					rfr, 
+					self.underlying.dividend_yield, 
+					ttm, 
+					vol), 
+				2)
 
 	def expire(self):
 		self.expired = True

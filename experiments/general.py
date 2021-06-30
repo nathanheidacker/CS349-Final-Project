@@ -6,37 +6,67 @@ import datetime
 def main():
 
 	# Initial portfolio conditions, runtime
-	start_date = "2009-01-01"
+	start_date = "2005-02-25"
 	end_date = "2017-01-01"
-	initial = 50000
+	initial = 500000
 
-	# Spy covered calls algorithm performance
-	print("Begin backtesting...")
+	# Tracking SPY progress on same initial investment
+	print("Begin SPY backtesting...")
+	p = finance.Portfolio(initial, start_date)
+	spy = finance.Stock("SPY", "data/spy.csv", start_date)
+	purchase_volume = int(p.liquid().volume / spy.price)
+	p.buy(spy, purchase_volume)
+	while p.date < datetime.date.fromisoformat(end_date):
+		p.next_day()
+	p.sell(spy, purchase_volume)
+	value_history = p.value(p.weekdays())
+	x = value_history[:, 0]
+	y = value_history[:, 1].astype(float)
+	plt.plot(x, y, label="SPY")
+	print("SPY backtesting complete.\n")
+
+	# Default SPY covered calls algorithm performance
+	name = "SPY CC Default"
+	print("Begin {} backtesting...".format(name))
 	p = finance.Portfolio(initial, start_date)
 	algos.spy_covered_calls(p, end_date=end_date)
 	value_history = p.value(p.weekdays())
-	print("Algorithm 1 backtesting complete.")
+	y = value_history[:, 1].astype(float)
+	plt.plot(x, y, label=name)
+	print("{} backtesting complete.\n".format(name))
 
-	# Same amount invested in spy over the same duration
-	print("Begin backtesting...")
-	p2 = finance.Portfolio(initial, start_date)
-	spy = finance.Stock("SPY", "data/spy.csv", start_date)
-	purchase_volume = int(p2.liquid().volume / spy.price)
-	p2.buy(spy, purchase_volume)
-	while p2.date < datetime.date.fromisoformat(end_date):
-		p2.next_day()
-	p2.sell(spy, purchase_volume)
-	value_history2 = p2.value(p.weekdays())
-	print("Algorithm 2 backtesting complete.")
+	# Experimental CC strategies
+	expiries = {
+		0: 0,
+		1: 0,
+		2: 0,
+		3: 0,
+		4: 0
+	}
+	strike_adjustments = 3
+	expiry_adjustments = 3
 
-	# Building out graphs
-	x = value_history[:, 0]
-	y1 = value_history[:, 1].astype(float)
-	y2 = value_history2[:, 1].astype(float)
+	for i in range(expiry_adjustments):
+		for k in expiries.keys():
+			expiries[k] = i
+		for strike_adjustment in range(strike_adjustments):
+			name = "SPY CC {} days, +{}".format(i, strike_adjustment)
+			print("Begin {} backtesting...".format(name))
+			p = finance.Portfolio(initial, start_date)
+			algos.spy_covered_calls(
+				p,
+				start_date,
+				end_date,
+				expiries,
+				strike_adjustment)
+			value_history = p.value(p.weekdays())
+			y = value_history[:, 1].astype(float)
+			plt.plot(x, y, label=name)
+			print("{} backtesting complete\n".format(name))
 
+
+	# Building Graph
 	plt.title("Spy vs Covered Calls")
-	plt.plot(x, y1, label="Covered Calls")
-	plt.plot(x, y2, label="SPY")
 	plt.legend()
 
 	num_labels = 5

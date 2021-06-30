@@ -7,7 +7,7 @@ from algorithms import finance, models
 import algorithms.algorithm_helpers as helpers
 from data import load_data
 
-def spy_covered_calls(portfolio, start_date=None, end_date=None):
+def spy_covered_calls(portfolio, start_date=None, end_date=None, expiry_schedule=None, strike_adjustment=None):
 	"""
 	Performs the SPY covered call strategy on a portfolio, given a
 	start date. If no end date is given, the algorithm will run until
@@ -48,13 +48,17 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 	# The spy options chain schedule, integer values correspond to days
 	# These values determine the day of expiry for a short sold call given
 	# the weekday it is being sold on
-	expiry_schedule = {
+	default_expiry_schedule = {
 		0: 2,
 		1: 1,
-		2: 0,
+		2: 2,
 		3: 1,
-		4: 0,
+		4: 3,
 	}
+
+	# Allow the user to define the expiry schedule, strike adjustment
+	expiry_schedule = expiry_schedule if expiry_schedule else default_expiry_schedule
+	strike_adjustment = strike_adjustment if strike_adjustment else 1
 
 	# Initialize portfolio
 	start_date, end_date = helpers.initialize(portfolio, start_date, end_date)
@@ -72,12 +76,16 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 				portfolio.buy(spy, stock_purchase_volume)
 
 			# Calculate current spy volume and spy call volume
-			current_spy_volume = getattr(portfolio.position(spy), "volume", 0)
+			current_spy = portfolio.position(spy)
+			current_spy_volume = getattr(current_spy, "volume", 0)
 			current_spy_call_volume = sum([position.volume for position in portfolio.positions.get("call", []) if position.asset.name == "SPY"])
 
 			# The call to be sold
-			basis = getattr(portfolio.position(spy), "basis", None)
-			spy_call = finance.Call(spy, max(math.floor(spy.price) + 2, basis), expiry_schedule[portfolio.date.weekday()])
+			basis = getattr(current_spy, "basis", None)
+			spy_call = finance.Call(spy, max(math.floor(spy.price + strike_adjustment), math.floor(basis + 1)), expiry_schedule[portfolio.date.weekday()])
+
+			# Decrement SPY stock position basis by premium collected (per share)
+			#current_spy.basis -= (spy_call.price / 100)
 
 			# Determine number of calls that can be sold out
 			call_short_volume = (current_spy_volume // 100) - current_spy_call_volume
