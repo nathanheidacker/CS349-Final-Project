@@ -539,7 +539,7 @@ class Portfolio:
 		# Initializing other attributes
 		self.verboseprint = print if verbose else (lambda *args, **kwargs: None)
 		self.basis = basis
-		self.basis_symbol = self.positions["cash"][0].symbol
+		self.basis_symbol = self.cash.symbol
 		self.risk_free_rate = risk_free_rate
 		self.margin = (initial * margin) - initial if margin else 0
 		self.maintenance_requirement = margin
@@ -824,7 +824,7 @@ class Portfolio:
 		else:
 
 			# Decrement cash by the value of the position
-			self.positions["cash"][0] -= position.value
+			self.cash -= position.value
 
 		# Try to add positions, otherwise add the position to the
 		# positions dictionary, creating a new key for that asset
@@ -892,7 +892,7 @@ class Portfolio:
 				current_position -= position
 				if current_position.volume == 0:
 					self.positions[current_position.asset.type].remove(current_position)
-				self.positions["cash"][0] += (position.value if position.asset.type != "cash" else 0)
+				self.cash += (position.value if position.asset.type != "cash" else 0)
 			except:
 				raise ValueError("Error decrementing current position: {} can not be subtracted from {}".format(
 					position,
@@ -956,7 +956,6 @@ class Portfolio:
 		else:
 
 			# Increment cash by the value of the short position
-			print(position.value)
 			self.cash += position.value
 
 		# Try to add positions, otherwise add the position to the
@@ -994,56 +993,18 @@ class Portfolio:
 		"""
 		raise NotImplementedError
 
-		# The short to be covered
-		position = Position(asset, volume, self.date)
-
-		# Find the current position in said asset, if any
-		current_position = self.position(asset)
-
-		# Must have a positive purchase volume
-		if volume <= 0:
-			raise ValueError("Not a valid sell volume")
-
-		# Volume must be integer unless otherwise allowed
-		elif not asset.fractional and type(volume) != int:
-			raise ValueError("Can not sell fractional volumes of this asset")
-
-		# We can only sell a position if it is currently owned
-		elif current_position:
-
-			# We can't sell more than we own
-			if volume > current_position.volume:
-				raise ValueError("Position too small to sell {}, only owns {}").format(
-					volume,
-					current_position.volume)
-
-			# 
-			try:
-				current_position -= position
-				self.positions["cash"][0] += position.value
-			except:
-				raise ValueError("Error decrementing current position: {} can not be subtracted from {}").format(
-					position,
-					current_position)
-
-		# The position attempting to be sold is not owned
-		else:
-			self.verboseprint("Unable to find compatible asset to sell")
-
-		self.synchronise()
-		self.update_history()
-
 	def exercise(self, options_position):
 		"""
 		Exercises an options position owned by the portfolio
 		"""
+		raise NotImplementedError
 		# Options position renamed for readability
 		pos = options_position
 
 		# Calls buy underlying at strike when exercised
 		if pos.asset.type == "call":
-			self.buy(pos.underlying, pos.volume)
-			self.cash += (pos.asset.underlying.price - pos.asset.strike) * (100 * pos.volume)
+			self.buy(pos.asset.underlying, pos.volume * 100, purchase_price=pos.asset.strike)
+			#self.cash += (pos.asset.underlying.price - pos.asset.strike) * (100 * pos.volume)
 
 		# Puts sell underlying at strike when exercised
 		elif pos.asset.type == "put":
@@ -1056,8 +1017,8 @@ class Portfolio:
 
 			# Otherwise, exercise as usual
 			else:
-				self.sell(underlying.asset, underlying.volume)
-				self.cash += (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
+				self.sell(pos.asset.underlying, pos.volume * 100, sale_price=pos.asset.strike)
+				#self.cash += (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
 
 		# Remove the options position from owned positions after exercise
 		self.positions[pos.asset.type].remove(pos)
@@ -1078,7 +1039,7 @@ class Portfolio:
 		# Puts are required to buy their collateral on assignment
 		elif pos.asset.type == "put":
 			self.buy(pos.collateral.asset, pos.collateral.volume)
-			self.cash -= (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
+			#self.cash -= (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
 
 		# Remove the options position from owned positions after assignment
 		self.positions[pos.asset.type].remove(pos)
@@ -1151,7 +1112,7 @@ class Portfolio:
 
 		# Add long positions, subtract short positions
 		value = sum([position.value for position in all_assets if not position.short])
-		#value -= sum([position.value for position in all_assets if position.short])
+		value -= sum([position.value for position in all_assets if position.short])
 
 		return np.array([date, float(value)])
 
