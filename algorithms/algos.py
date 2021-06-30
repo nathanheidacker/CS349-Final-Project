@@ -76,7 +76,8 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None):
 			current_spy_call_volume = sum([position.volume for position in portfolio.positions.get("call", []) if position.asset.name == "SPY"])
 
 			# The call to be sold
-			spy_call = finance.Call(spy, math.floor(spy.price) + 1, expiry_schedule[portfolio.date.weekday()])
+			basis = getattr(portfolio.position(spy), "basis", None)
+			spy_call = finance.Call(spy, max(math.floor(spy.price) + 2, basis), expiry_schedule[portfolio.date.weekday()])
 
 			# Determine number of calls that can be sold out
 			call_short_volume = (current_spy_volume // 100) - current_spy_call_volume

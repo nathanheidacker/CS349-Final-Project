@@ -320,11 +320,12 @@ class Position:
 		self.volume = volume
 		self.basis = asset.price
 		self.value = self.basis * self.volume
-		self.collateral = collateral
 		self.short = short
 		self.date = date
 		self.history = {}
+		self.collateral = collateral
 
+		"""
 		# Ensure that shorts have adequate collateral
 		if self.short: 
 			if not self.collateral:
@@ -337,6 +338,7 @@ class Position:
 		# Collateral is unnecessary for long positions
 		elif collateral:
 			raise ValueError("No collateral required for long positions")
+		"""
 
 		self.update_history()
 
@@ -414,21 +416,11 @@ class Position:
 		Updates the value of the position based on the value
 		of the underlying asset
 		"""
-		if self.date != self.asset.date:
-			self.asset.date = self.date
-			self.asset.valuate(column=column)
+		# Valuate the position's asset
+		self.asset.valuate(column=column)
 
 		# The new valuation
 		valuation = self.asset.price * self.volume
-
-		# If the position is shorted, we need to ensure that the
-		# value of the collateral matches
-		"""
-		if self.short:
-			self.collateral.valuate()
-			if self.collateral.value != self.value:
-				raise ValueError("\n{}\nInsufficient collateral for this position".format(self))
-		"""
 
 		self.value = valuation
 		self.update_history()
@@ -929,9 +921,11 @@ class Portfolio:
 		purchase_price = purchase_price if purchase_price else asset.price
 
 		# Generate collateral for this short position if none is provided
+		"""
 		collateral = collateral if collateral else self.collateral(asset, volume)
 		if not collateral:
 			raise ValueError("Insufficient collateral for {} x {}".format(asset, volume))
+		"""
 
 		# The position to be shorted
 		position = Position(asset, volume, self.date, True, collateral)
@@ -1004,7 +998,6 @@ class Portfolio:
 		# Calls buy underlying at strike when exercised
 		if pos.asset.type == "call":
 			self.buy(pos.asset.underlying, pos.volume * 100, purchase_price=pos.asset.strike)
-			#self.cash += (pos.asset.underlying.price - pos.asset.strike) * (100 * pos.volume)
 
 		# Puts sell underlying at strike when exercised
 		elif pos.asset.type == "put":
@@ -1018,10 +1011,11 @@ class Portfolio:
 			# Otherwise, exercise as usual
 			else:
 				self.sell(pos.asset.underlying, pos.volume * 100, sale_price=pos.asset.strike)
-				#self.cash += (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
 
 		# Remove the options position from owned positions after exercise
 		self.positions[pos.asset.type].remove(pos)
+
+		self.update_history()
 
 	def assign(self, options_position):
 		"""
@@ -1032,17 +1026,16 @@ class Portfolio:
 
 		# Calls are required to sell their collateral on assignment
 		if pos.asset.type == "call":
-			if pos.collateral.volume == 0:
-				raise ValueError("{}\n{}".format(pos, pos.collateral))
-			self.sell(pos.collateral.asset, pos.collateral.volume, sale_price=pos.asset.strike)
+			self.sell(pos.asset.underlying, pos.volume * 100, sale_price=pos.asset.strike)
 
 		# Puts are required to buy their collateral on assignment
 		elif pos.asset.type == "put":
-			self.buy(pos.collateral.asset, pos.collateral.volume)
-			#self.cash -= (pos.asset.strike - pos.asset.underlying.price) * (100 * pos.volume)
+			self.buy(pos.asset.underlying, pos.volume * 100, purchase_price=pos.asset.strike)
 
 		# Remove the options position from owned positions after assignment
 		self.positions[pos.asset.type].remove(pos)
+
+		self.update_history()
 
 
 	def _handle_expired_option(self, options_position):
@@ -1085,11 +1078,13 @@ class Portfolio:
 		column = column if column else self.valuate_at
 
 		# Evaluate assets before positions
+		"""
 		for asset in self.assets():
 			if asset.type in ["call", "put"]:
 				asset.valuate(column=column, rfr=self.risk_free_rate)	
 			else:
 				asset.valuate(column=column)
+		"""
 
 		# Valuate all positions
 		for position in self.list_positions():
@@ -1097,10 +1092,6 @@ class Portfolio:
 
 			# Expired options need to be dealt with
 			self._handle_expired_option(position)
-
-			# Empty positions should be removed
-			if position.volume == 0:
-				self.positions[position.asset.type].remove(position)
 
 	def _value(self, date):
 		"""

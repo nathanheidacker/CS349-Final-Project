@@ -6,15 +6,14 @@ import datetime
 def main():
 
 	# Initial portfolio conditions, runtime
-	start_date = "2005-11-10"
-	end_date = "2006-12-10"
+	start_date = "2009-01-01"
+	end_date = "2017-01-01"
 	initial = 50000
 
 	# Spy covered calls algorithm performance
 	print("Begin backtesting...")
-	p = finance.Portfolio(initial, start_date, verbose=True)
+	p = finance.Portfolio(initial, start_date)
 	algos.spy_covered_calls(p, end_date=end_date)
-	p.print_history(p.weekdays())
 	value_history = p.value(p.weekdays())
 	print("Algorithm 1 backtesting complete.")
 
