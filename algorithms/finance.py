@@ -325,7 +325,7 @@ class Option(Asset):
 	instead.
 	"""
 
-	def __init__(self, underlying, strike, expiry):
+	def __init__(self, underlying, strike, expiry, auto_exercise=False):
 
 		# Attribute initialization
 		super(Option, self).__init__(
@@ -336,13 +336,13 @@ class Option(Asset):
 			data = None,
 			fractional = False)
 		self.underlying = underlying
-		if self.underlying.type not in ["call", "put"]:
-			raise ValueError("{} is not a viable asset type for a call contract. \
-				use a stock instead".format(underlying))
+		if self.underlying.type != "stock":
+			raise ValueError("{} is not a viable asset type for an options contract. \
+				use a stock instead".format(underlying.type))
 		self.strike = float(strike)
 		self.expiry = None
 		self.expired = False
-		self.auto_exercise = False
+		self.auto_exercise = True if auto_exercise == True else False
 
 		# Determining expiry
 		if type(expiry) == str:
@@ -397,10 +397,10 @@ class Call(Option):
 				expire
 	"""
 
-	def __init__(self, underlying, strike, expiry):
+	def __init__(self, underlying, strike, expiry, auto_exercise=False):
 
 		# Attribute intialization
-		super(Call, self).__init__(underlying, strike, expiry)
+		super(Call, self).__init__(underlying, strike, expiry, auto_exercise)
 		self.type = "call"
 
 
@@ -475,10 +475,10 @@ class Put(Option):
 				time after the underlying's current date when the option will
 				expire
 	"""
-	def __init__(self, underlying, strike, expiry):
+	def __init__(self, underlying, strike, expiry, auto_exercise=False):
 
 		# Attribute initialization
-		super(Put, self).__init__(underlying, strike, expiry)
+		super(Put, self).__init__(underlying, strike, expiry, auto_exercise)
 		self.type = "put"
 
 
@@ -755,6 +755,17 @@ class Portfolio:
 			A list of strings indicating the type of assets that this
 			portfolio is capable of purchasing
 
+		valuation_key {? (Typically Str)}:
+			A value used to access the column which holds valuation data
+			for the assets contained within this portfolio when it is
+			being valuated. Typically column names are strings, but this
+			value could technically be anything that pandas allows.
+
+		verbose {bool}:
+			When set to true by the user, the portfolio will print various
+			actions and non-terminating errors at runtime. Primarily used
+			for debugging algorithms.
+
 	"""
 
 	class Positions(dict):
@@ -762,7 +773,7 @@ class Portfolio:
 		A specific type of dictionary utilized by portfolios to keep track of
 		financial positions. Provides an optimized deepcopy method, as it must
 		be used frequently to keep track of portfoio history over time. This
-		significantly reduces algorithm runtime.
+		significantly reduces algorithm runtimes.
 		"""
 
 		def __deepcopy__(self, memodict={}):
@@ -806,7 +817,6 @@ class Portfolio:
 		start_date = datetime.date.fromisoformat(start_date) if type(start_date) == str else start_date
 
 		# Initializing portfolio positions
-		#self.positions = {"cash": [Cash(initial, basis)]}
 		self.positions = self.Positions()
 		self.positions["cash"] = [Cash(initial, basis)]
 		self.cash = self.positions["cash"][0]
@@ -1081,14 +1091,20 @@ class Portfolio:
 				An asset object which will act as the underlying
 				asset for the position entered into
 
-			volume (Int / Float):
+			volume (numeric}:
 				A numeric value indicating the amount of the
 				asset to purchase
+
+			purchase_price {numeric}:
+				A numeric value indicating the price at which the asset
+				is purchased. This can vary from the asset's spot price in
+				the case of discount purchases and financial derivatives.
 
 		Returns:
 			Modifies the portfolio's positions by purchasing the asset,
 			entering the position.
 		"""
+
 		# Used when purchase price differs from spot price, such as with
 		# options or stock discounts
 		purchase_price = purchase_price if purchase_price else asset.price
@@ -1147,10 +1163,16 @@ class Portfolio:
 				A numeric value indicating the amount of the
 				asset to sell
 
+			sale_price {numeric}:
+				A numeric value indicating the price at which the asset
+				is sold. This can vary from the asset's spot price in
+				the case of discount purchases and financial derivatives.
+
 		Returns:
 			Modifies the portfolio's positions by selling the asset,
 			exiting the position
 		"""
+
 		# Used when purchase price differs from spot price, such as with
 		# options or stock discounts
 		sale_price = sale_price if sale_price else asset.price
@@ -1181,12 +1203,14 @@ class Portfolio:
 					volume,
 					current_position.volume))
 
-			# 
+			# Try to sell the position if we can
 			try:
 				current_position -= position
 				if current_position.volume == 0:
 					self.positions[current_position.asset.type].remove(current_position)
 				self.cash += (position.value if position.asset.type != "cash" else 0)
+
+			# Some error occurred in trying to sell the asset
 			except:
 				raise ValueError("Error decrementing current position: {} can not be subtracted from {}".format(
 					position,
@@ -1200,7 +1224,7 @@ class Portfolio:
 		self.update_history()
 
 
-	def short(self, asset, volume, purchase_price=None, collateral=None):
+	def short(self, asset, volume, sale_price=None):
 		"""
 		*** SHORT POSITIONS ONLY ***
 		Used to enter into a new short position. Sells an asset that
@@ -1211,9 +1235,14 @@ class Portfolio:
 				An asset object which will act as the underlying
 				asset for the position entered into
 
-			volume (Int / Float):
+			volume (numeric):
 				A numeric value indicating the amount of the
 				asset to purchase
+
+			sale_price {numeric}:
+				A numeric value indicating the price at which the asset
+				is sold. This can vary from the asset's spot price in
+				the case of discount purchases and financial derivatives.
 
 		Returns:
 			Modifies the portfolio's positions by shorting the asset,
@@ -1230,11 +1259,11 @@ class Portfolio:
 
 		# Used when purchase price differs from spot price, such as with
 		# options or stock discounts
-		purchase_price = purchase_price if purchase_price else asset.price
+		sale_price = sale_price if sale_price else asset.price
 
 		# The position to be shorted
 		position = Position(asset, volume, self.date, True)
-		position.value = purchase_price * volume
+		position.value = sale_price * volume
 
 		# Find the current position in said asset, if any
 		current_position = self.position(asset, short=True)
@@ -1272,7 +1301,7 @@ class Portfolio:
 		self.update_history()
 
 
-	def cover(self, asset, volume):
+	def cover(self, asset, volume, purchase_price):
 		"""
 		*** SHORT POSITIONS ONLY ***
 		Used to exit or partially exist a short position by covering
@@ -1287,24 +1316,94 @@ class Portfolio:
 				A numeric value indicating the amount of the
 				asset to purchase
 
+			purchase_price {numeric}:
+				A numeric value indicating the price at which the asset
+				is purchased. This can vary from the asset's spot price in
+				the case of discount purchases and financial derivatives.
+
 		Returns:
 			Modifies the portfolio's positions by covering the short,
 			exiting the position
 		"""
-		raise NotImplementedError
+
+		# Used when purchase price differs from spot price, such as with
+		# options or stock discounts
+		purchase_price = purchase_price if purchase_price else asset.price
+
+		# The position to be sold
+		position = Position(asset, volume, self.date)
+		position.value = purchase_price * volume
+
+		# Find the current position in said asset, if any
+		current_position = self.position(asset)
+
+		# Must have a positive purchase volume
+		if volume < 0:
+			raise ValueError("{} is not a valid purchase volume for {}".format(volume, asset))
+		elif volume == 0:
+			# This is not a terminating error, but the user should be made aware
+			self.verboseprint("Unable to buy 0 of {} on {} ({})".format(asset, self.date, weekday(self.date)))
+
+		# Volume must be integer unless otherwise allowed
+		elif not asset.fractional and type(volume) != int:
+			raise ValueError("Can not sell fractional volumes of {}".format(asset))
+
+		# We can only sell a position if it is currently owned
+		elif current_position:
+
+			# We can't sell more than we own
+			if volume > current_position.volume:
+				raise ValueError("Position too small to cover {}, only shorted {}".format(
+					volume,
+					current_position.volume))
+
+			# Try to cover the position if we can
+			try:
+				current_position -= position
+				if current_position.volume == 0:
+					self.positions[current_position.asset.type].remove(current_position)
+				self.cash -= (position.value if position.asset.type != "cash" else 0)
+
+			# Some error occured in trying to cover the short
+			# --- THIS VALUEERROR NEEDS REVISION ---
+			except:
+				raise ValueError("Error decrementing current position: {} can not be subtracted from {}".format(
+					position,
+					current_position))
+
+		# The position attempting to be sold is not owned
+		else:
+			self.verboseprint("Unable to find compatible asset to sell for {}".format(position))
+
+		self.synchronise()
+		self.update_history()
 
 
 	def exercise(self, options_position):
 		"""
 		Exercises an options position owned by the portfolio
+
+		Arguments:
+			options_position {Position}:
+				An options position owned by the portfolio
 		"""
-		raise NotImplementedError
+
 		# Options position renamed for readability
 		pos = options_position
 
 		# Calls buy underlying at strike when exercised
 		if pos.asset.type == "call":
-			self.buy(pos.asset.underlying, pos.volume * 100, purchase_price=pos.asset.strike)
+
+			# Check that we have enough liquidity available before purchase
+			if pos.asset.strike * pos.volume * 100 > self.liquid():
+				self.sell(pos, pos.volume)
+
+			# Otherwise, make the purchase
+			else:
+				self.buy(pos.asset.underlying, pos.volume * 100, purchase_price=pos.asset.strike)
+
+			# Remove the options position from owned positions after exercise
+			self.positions[pos.asset.type].remove(pos)
 
 		# Puts sell underlying at strike when exercised
 		elif pos.asset.type == "put":
@@ -1319,8 +1418,8 @@ class Portfolio:
 			else:
 				self.sell(pos.asset.underlying, pos.volume * 100, sale_price=pos.asset.strike)
 
-		# Remove the options position from owned positions after exercise
-		self.positions[pos.asset.type].remove(pos)
+			# Remove the options position from owned positions after exercise
+			self.positions[pos.asset.type].remove(pos)
 
 		self.update_history()
 
@@ -1328,12 +1427,24 @@ class Portfolio:
 	def assign(self, options_position):
 		"""
 		Assigns an options position owned by the portfolio
+
+		Arguments:
+			options_position {Position}:
+				An options position owned by the portfolio
 		"""
+
 		# Options position renamed for readability
 		pos = options_position
 
 		# Calls are required to sell their collateral on assignment
 		if pos.asset.type == "call":
+
+			# Check that we have enough of the underlying asset to sell. Otherwise,
+			# buy more to cover to the extent that we can
+			current_volume = getattr(self.position(pos.asset.underlying), "volume", 0)
+			if current_volume < pos.volume * 100:
+				self.buy(pos.asset.underlying, (pos.volume * 100) - current_volume)
+
 			self.sell(pos.asset.underlying, pos.volume * 100, sale_price=pos.asset.strike)
 
 		# Puts are required to buy their collateral on assignment
