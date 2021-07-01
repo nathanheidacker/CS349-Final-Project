@@ -4,12 +4,22 @@ import csv
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from copy import deepcopy
+import copy
 
 def weekday(date):
 	"""
 	Given a isoformatted date string or datetime.date object, returns
 	a string of the day of the week that date falls on
+
+	Arguments:
+		date {datetime.date / Str}:
+			A datetime.date object or string which is used to determine
+			which date's weekday will be returned
+
+	Returns:
+		weekday {Str}:
+			A string corresponding to the day of the week that the input
+			date falls on
 	"""
 
 	date = datetime.date.fromisoformat(date) if type(date) == str else date
@@ -25,6 +35,7 @@ def weekday(date):
 		}
 
 	return weekday_codes[date.weekday()]
+
 
 def cdf(x):
 	"""
@@ -52,17 +63,36 @@ def black_scholes_call(spot, strike, rfr, dy, ttm, vol):
 	premiums
 
 	Arguments:
-		spot: The current spot price of the underlying asset
-		strike: The strike price of the call option
-		rfr: The current risk free rate
-		dy: The dividend yield of the underlying asset
-		ttm: The time to maturity of the call option
-		vol: The current measure of historical volatility of
-			 the underlying asset
+		spot {numeric}: 
+			A numeric value representing the current spot 
+			price of the underlying asset
+
+		strike {numeric}: 
+			A numeric value representing the strike price 
+			of the call option
+
+		rfr {float}: 
+			The current risk free rate, represented as a proportion
+			(example: 8% annual return should be input as 0.08)
+
+		dy {float}: 
+			The dividend yield of the underlying asset, represented
+			as a proportion (eg. 1% = 0.01)
+
+		ttm {numeric}: 
+			The time to maturity of the call option represented in days.
+			Partial day inputs are permitted
+
+		vol {float}: 
+			The current measure of the implied volatility of the 
+			underlying asset.
 
 	Returns:
-		premium: The call option's current value (premium)
+		premium {numeric}: 
+			The call option's current value (premium) per CONTRACT (NOT
+			PER SHARE)
 	"""
+
 	# Black scholes ttm is in years, input is days
 	ttm = ttm / 365
 
@@ -72,6 +102,7 @@ def black_scholes_call(spot, strike, rfr, dy, ttm, vol):
 	# Each contract is for 100 shares
 	return call_premium * 100
 
+
 def black_scholes_put(spot, strike, rfr, dy, ttm, vol):
 	"""
 	An implementation of the black scholes equation taken
@@ -79,17 +110,36 @@ def black_scholes_put(spot, strike, rfr, dy, ttm, vol):
 	premiums
 
 	Arguments:
-		spot: The current spot price of the underlying asset
-		strike: The strike price of the put option
-		rfr: The current risk free rate
-		dy: The dividend yield of the underlying asset
-		ttm: The time to maturity of the put option
-		vol: The current measure of historical volatility of
-			 the underlying asset
+		spot {numeric}: 
+			A numeric value representing the current spot 
+			price of the underlying asset
+
+		strike {numeric}: 
+			A numeric value representing the strike price 
+			of the put option
+
+		rfr {float}: 
+			The current risk free rate, represented as a proportion
+			(example: 8% annual return should be input as 0.08)
+
+		dy {float}: 
+			The dividend yield of the underlying asset, represented
+			as a proportion (eg. 1% = 0.01)
+
+		ttm {numeric}: 
+			The time to maturity of the put option represented in days.
+			Partial day inputs are permitted
+
+		vol {float}: 
+			The current measure of the implied volatility of the 
+			underlying asset.
 
 	Returns:
-		premium: The put option's current value (premium)
+		premium {numeric}: 
+			The put option's current value (premium) per CONTRACT (NOT
+			PER SHARE)
 	"""
+
 	# Black scholes ttm is in years, input is days
 	ttm = ttm / 365
 
@@ -98,6 +148,7 @@ def black_scholes_put(spot, strike, rfr, dy, ttm, vol):
 
 	# Each contract is for 100 shares
 	return put_premium * 100
+
 
 class Asset:
 	"""
@@ -151,39 +202,104 @@ class Asset:
 			except:
 				raise ValueError("Data could not be initialized")
 
+
 	def __str__(self, symbol="$"):
 		return "({} {}, {}{})".format(self.name, self.type, symbol, self.price)
+
 
 	def __repr__(self):
 		return self.__str__()
 
+
 	def next_day(self):
+		"""
+		Iterates the object to the next calendar date based on self.date
+		"""
 		self.date = self.date + datetime.timedelta(days=1) if self.date else None
 
+
 	def valuate(self, column="Close"):
-		if self.type == "cash":
-			pass
-		elif self.date and not self.data.empty:
+		"""
+		Valuates the asset on the assets current date (self.date). Uses the
+		column input to determine which data to draw from
+
+		Arguments:
+			column {? (typically string)}:
+				A value corresponding to a column header of a dataframe from
+				which the asset will draw price data. Could technically be
+				anything that pandas will allow.
+		"""
+
+		# We must check for both a dataset and a date to evaluate on
+		if self.date and not self.data.empty:
+
+			# Grabbing the row corresponding to the date
 			data = self.data.loc[self.data["Date"] == self.date.isoformat()]
+
+			# If there is data corresponding to the date, we use it for price
 			if not data.empty:
 				self.price = float(data.iloc[0][column])
 			else:
 				self.verboseprint("No price data for {} on {} ({})".format(self, self.date.isoformat(), weekday(self.date)))
+
+		# This occurs regularly when data is unavailable for certain dates,
+		# such as market holidays and weekends. Not a terminating error.
 		else:
 			self.verboseprint("Missing data for valuation of {}".format(self) if self.date else "Missing date for valuation")
 
+
 class Stock(Asset):
-	def __init__(self, name, data, date, dividend_yield=0, initial_key="Close"):
+	def __init__(self, name, date=None, data=None, dividend_yield=0, initial_key="Close"):
 
 		# Attribute initialization
 		super(Stock, self).__init__("stock", name, None, date, data, True)
 		self.dividend_yield = dividend_yield
 
-		#Valuate the position if we can
+		# If the dataframe is empty, try to find a compatible one based on name
 		if self.data.empty:
-			raise ValueError("Incompatible dataset")
+			if self.date:
+				try:
+					self.data = pd.read_csv("data/{}.csv".format(self.name.lower()))
+					self.valuate(initial_key)
+				except:
+					raise ValueError("{} not initialized: incompatible dataset".format(self.name))
+			else:
+				try:
+					self.data = pd.read_csv("data/{}.csv".format(self.name.lower()))
+					self.date = datetime.date.fromisoformat(self.data.iloc[0]["Date"])
+					self.valuate(initial_key)
+				except:
+					raise ValueError("{} not initialized: incompatible dataset".format(self.name))
 
-		# Trying to find a viable starting price
+		# In this case, we have a dataset with data in it, as well as a date
+		elif self.date:
+			try:
+				self.valuate(initial_key)
+			except:
+				try:
+					# If we fail to valuate at the input date, we can still try to valuate with the first date
+					self.date = datetime.date.fromisoformat(self.data.iloc[0]["Date"])
+					self.valuate(initial_key)
+					self.verboseprint("WARNING: {} was initialized, but {} was not able to be used in valuation.\
+						{} was used for valuation instead".format(self.name, date, self.date))
+					self.date = date
+				except:
+					raise ValueError("{} not initialized, incompatible dataset".format(self.name))
+
+		# In this case, we are missing too much data for this stock be initialized
+		else:
+			raise ValueError("{} not initialized, incompatible dataset or data")
+
+		# This is a verbose warning to let the user know that this stock will essentially
+		# do nothing, owing to the available data in the datset.
+		if self.date > datetime.date.fromisoformat(self.data.iloc[-1]["Date"]):
+			self.verboseprint("WARNING FOR {}: No data exists for this asset after the start_date.\
+				An earlier start_date or a different dataset should be used")
+
+		"""
+		--- OLD, UNDER REVISION ---
+		
+		# Trying to find a viable starting price if one has not been found already
 		last_date = datetime.date.fromisoformat(self.data.iloc[-1]["Date"])
 		while not self.price:
 
@@ -198,7 +314,17 @@ class Stock(Asset):
 		# Reset date to date given
 		self.date = datetime.date.fromisoformat(date) if type(date) == str else date
 
+		"""
+
+
 class Option(Asset):
+	"""
+	For internal use only.
+	Base class for the financial derivative known as an option, utilized in
+	both call and put classes. To instantiate an option, use Call() or Put() 
+	instead.
+	"""
+
 	def __init__(self, underlying, strike, expiry):
 
 		# Attribute initialization
@@ -210,6 +336,9 @@ class Option(Asset):
 			data = None,
 			fractional = False)
 		self.underlying = underlying
+		if self.underlying.type not in ["call", "put"]:
+			raise ValueError("{} is not a viable asset type for a call contract. \
+				use a stock instead".format(underlying))
 		self.strike = float(strike)
 		self.expiry = None
 		self.expired = False
@@ -230,6 +359,7 @@ class Option(Asset):
 		# Determining option price
 		self.valuate()
 
+
 	def __str__(self, symbol="$"):
 		return "({} {} {}{}, {}{})".format(
 			self.name, 
@@ -239,21 +369,61 @@ class Option(Asset):
 			symbol, 
 			self.price)
 
+
 class Call(Option):
+	"""
+	A class representing a financial derivative known as a call option (contract),
+	which grants the owner the right to purchase 100 shares of the underlying asset
+	at the strike price, by the expiry date (as opposed to AT the expiry date, these
+	are american calls)
+
+	Arguments:
+		underlying {Stock}:
+			A stock object which underlies the option, determining what the option's
+			values are and how they change across time.
+
+		strike {numeric}:
+			A numeric value indicating the price at which the contract guarantees the
+			owner the ability to purchase the underlying. If the share price is below
+			this value, the option has no intrinsic value
+
+		expiry {int / str / datetime.date / datetime.timdelta}:
+			int: The number of days after the underlying's current date when this
+				option will expire
+			str: An isoformatted datestring that acts as the date of expiry
+			datetime.date: A datetime.date object that acts as the date of expiry
+			datetime.timedelta: a timedelta object which represents the amount of
+				time after the underlying's current date when the option will
+				expire
+	"""
+
 	def __init__(self, underlying, strike, expiry):
 
 		# Attribute intialization
 		super(Call, self).__init__(underlying, strike, expiry)
 		self.type = "call"
 
+
 	def valuate(self, column="Close", rfr=0.08, vol=0.15):
+
+		# Determine the time until the option expires (ttm) as a function of expiry date
+		# Options valuated at any value that is not "close" will have an extra day
+		# added to their ttm, as they still have time before they expire.
 		ttm = (self.expiry - self.date).days + (1 if column.upper() != "CLOSE" else 0)
+
+		# Do not evaluate expired options
 		if self.expired:
 			pass
+
+		# Expire the option if time to maturity is 0
 		elif ttm < 1:
 			self.expire()
+
+		# If the option was provided explicit data on its value, use that instead
 		elif not self.data.empty:
 			super(Call, self).valuate(column)
+
+		# Otherwise, use black scholes.
 		else:
 			self.price = round(
 				black_scholes_call(
@@ -265,8 +435,14 @@ class Call(Option):
 					vol), 
 				2)
 
+
 	def expire(self):
+
+		# Used when the option is valuated with a time to maturity of 0
 		self.expired = True
+
+		# If the strike is lower than the underlying at the time of expiry
+		# the option expires worthless.
 		if self.strike < self.underlying.price:
 			self.price = round((self.underlying.price - self.strike) * 100, 2)
 		else:
@@ -274,24 +450,69 @@ class Call(Option):
 
 
 class Put(Option):
+	"""
+	A class representing a financial derivative known as a put option (contract),
+	which grants the owner the right to sell 100 shares of the underlying asset
+	at the strike price, by the expiry date (as opposed to AT the expiry date, these
+	are american calls)
+
+	Arguments:
+		underlying {Stock}:
+			A stock object which underlies the option, determining what the option's
+			values are and how they change across time.
+
+		strike {numeric}:
+			A numeric value indicating the price at which the contract guarantees the
+			owner the ability to sell the underlying. If the share price is above
+			this value, the option has no intrinsic value
+
+		expiry {int / str / datetime.date / datetime.timdelta}:
+			int: The number of days after the underlying's current date when this
+				option will expire
+			str: An isoformatted datestring that acts as the date of expiry
+			datetime.date: A datetime.date object that acts as the date of expiry
+			datetime.timedelta: a timedelta object which represents the amount of
+				time after the underlying's current date when the option will
+				expire
+	"""
 	def __init__(self, underlying, strike, expiry):
 
+		# Attribute initialization
 		super(Put, self).__init__(underlying, strike, expiry)
 		self.type = "put"
 
+
 	def valuate(self, column="Close", rfr=0.08, vol=0.15):
+
+		# Determine the time until the option expires (ttm) as a function of expiry date
+		# Options valuated at any value that is not "close" will have an extra day
+		# added to their ttm, as they still have time before they expire.
 		ttm = (self.expiry - self.date).days + (1 if column.upper() != "CLOSE" else 0)
+
+		# Do not evaluate expired options
 		if self.expired:
 			pass
+
+		# Expire the option if time to maturity is 0
 		elif ttm < 1:
 			self.expire()
+
+		# If the option was provided with explicit data on its value, use that instead
 		elif not self.data.empty:
 			super(Put, self).valuate(column)
+
+		# Otherwise, use black scholes.
 		else:
 			self.price = round(black_scholes_put(self.underlying.price, self.strike, rfr, self.underlying.dividend_yield, ttm, vol), 2)
 
+
 	def expire(self):
+
+		# Used when the option is valuated with a time to maturity of 0
 		self.expired = True
+
+		# If the strike is higher than the underlying at the time of expiry
+		# the option expires worthless.
 		if self.strike > self.underlying.price:
 			self.price = round((self.strike - self.underlying.price) * 100, 2)
 		else:
@@ -300,7 +521,9 @@ class Put(Option):
 
 class Position:
 	"""
-	Class representing a financial position in an asset
+	Class representing a financial position in an asset, used primarily
+	by portfolios. Not intended to be invoked by the user, but can be
+	to track positions across time separate from any portfolio
 
 	Arguments:
 		asset {Asset}:
@@ -321,7 +544,7 @@ class Position:
 			A position that serves to act as collateral for a short position.
 			Only necessary for short positions
 	"""
-	def __init__(self, asset, volume, date=None, short=False, collateral=None):
+	def __init__(self, asset, volume, date=None, short=False):
 
 		# Attribute initialization
 		self.asset = asset
@@ -331,9 +554,10 @@ class Position:
 		self.short = short
 		self.date = date
 		self.history = {}
-		self.collateral = collateral
 
 		"""
+		--- OLD, UNDER REVISION ---
+
 		# Ensure that shorts have adequate collateral
 		if self.short: 
 			if not self.collateral:
@@ -355,8 +579,6 @@ class Position:
 
 		# Handle numeric additions to a position
 		if type(other) in [int, float]:
-			if self.collateral:
-				raise ValueError("Positions with collateral can not be modified with numeric types")
 			self.volume += other
 			self.value += other * self.basis
 			self.update_history()
@@ -369,10 +591,8 @@ class Position:
 			raise ValueError("Can not add positions with different assets")
 		elif self.short != other.short:
 			raise ValueError("Can not add short and long positions")
-		elif self.collateral:
-				# Recursive error checking if collateral exists
-				self.collateral += other.collateral
 
+		# Passed checks, updating values
 		self.value += other.value
 		self.volume += other.volume
 		self.basis = self.value / self.volume
@@ -381,13 +601,12 @@ class Position:
 
 		return self
 
+
 	def __sub__(self, other):
 
 		# Handle numeric subractions to position:
 		if type(other) in [int, float]:
-			if self.collateral:
-				raise ValueError("Positions with collateral can not be modified with numeric types")
-			elif other >= self.volume:
+			if other >= self.volume:
 				raise ValueError("Position is only has {} units, can not subtract {} units".format(
 					self.volume,
 					other))
@@ -403,27 +622,34 @@ class Position:
 			raise ValueError("Can not subtract positions with different assets")
 		elif self.short != other.short:
 			raise ValueError("Can not subtract dissimilar positions (both long or both short)")
-		elif self.collateral:
-				# Recursive error checking if collateral exists
-				self.collateral -= other.collateral
 
+		# Passed checks, updating values
 		self.value -= other.value
 		self.volume -= other.volume
 
 		self.update_history()
 		return self
 
+
 	def __str__(self, symbol="$"):
-		return "({}{} x {} @ {}{})".format("SHORT " if self.short else "", self.asset.__str__(symbol), self.volume, symbol, round(self.basis, 2))
+		return "({}{} x {} @ {}{})".format(
+			"SHORT " if self.short else "", 
+			self.asset.__str__(symbol), self.volume, 
+			symbol, 
+			round(self.basis, 2)
+			)
+
 
 	def __repr__(self):
 		return self.__str__()
+
 
 	def valuate(self, column="Close"):
 		"""
 		Updates the value of the position based on the value
 		of the underlying asset
 		"""
+
 		# Valuate the position's asset
 		self.asset.valuate(column=column)
 
@@ -433,14 +659,16 @@ class Position:
 		self.value = valuation
 		self.update_history()
 
+
 	def update_history(self):
 		"""
 		Updates the position's history based for the current
 		date
 		"""
-		if self.date:
-			new_self = deepcopy(self.value)
-			self.history[self.date.isoformat()] = new_self
+
+		if self.date and (self.history != None):
+			self.history[self.date.isoformat()] = self.value
+
 
 class Cash(Position):
 	"""
@@ -458,6 +686,7 @@ class Cash(Position):
 			the following: https://en.wikipedia.org/wiki/Currency_symbol
 
 	"""
+
 	def __init__(self, quantity, currency_code="USD"):
 		"""
 		For cash the price is always one, because it acts as the
@@ -469,6 +698,7 @@ class Cash(Position):
 
 		# Attribute inititalization
 		super(Cash, self).__init__(cash_asset, quantity)
+		self.currency_code = currency_code
 		self.symbol = \
 			{
 			"EUR": "€",
@@ -482,6 +712,11 @@ class Cash(Position):
 
 	def __str__(self, *args, **kwargs):
 		return "({}{})".format(self.symbol, round(self.volume, 2))
+
+
+	# Cash positions should never update their value on their own
+	def valuate(*args, **kwargs):
+		return
 
 
 class Portfolio:
@@ -521,13 +756,59 @@ class Portfolio:
 			portfolio is capable of purchasing
 
 	"""
+
+	class Positions(dict):
+		"""
+		A specific type of dictionary utilized by portfolios to keep track of
+		financial positions. Provides an optimized deepcopy method, as it must
+		be used frequently to keep track of portfoio history over time. This
+		significantly reduces algorithm runtime.
+		"""
+
+		def __deepcopy__(self, memodict={}):
+
+			def copy_position(position):
+				copy_asset = Asset(
+					position.asset.type,
+					position.asset.name,
+					position.asset.price,
+					position.asset.date,
+					None,
+					position.asset.fractional
+					)
+
+				copy_asset.verboseprint = position.asset.verboseprint
+
+				copy_position = Position(
+					copy_asset, 
+					position.volume, 
+					position.date, 
+					position.short
+					)
+
+				copy_position.history = None
+
+				return copy_position
+
+			positions_copy = {}
+			for k, v in self.items():
+				if k == "cash":
+					positions_copy[k] = [Cash(p.volume, p.currency_code) for p in v]
+				else:
+					positions_copy[k] = [copy_position(p) for p in v]
+
+			return positions_copy
+
+
 	def __init__(self, initial, start_date, basis="USD", risk_free_rate=0.08, margin=None, valid_assets=None, valuation_key=None, verbose=False):
 
 		# Accept string inputs for the start date
 		start_date = datetime.date.fromisoformat(start_date) if type(start_date) == str else start_date
 
 		# Initializing portfolio positions
-		self.positions = {"cash": [Cash(initial, basis)]}
+		#self.positions = {"cash": [Cash(initial, basis)]}
+		self.positions = self.Positions()
+		self.positions["cash"] = [Cash(initial, basis)]
 		self.cash = self.positions["cash"][0]
 		self.principal = initial
 		self.date = start_date
@@ -545,6 +826,7 @@ class Portfolio:
 		self.maintenance_requirement = margin
 		self.valid_assets = [] if valid_assets == None else valid_assets
 		self.valuate_at = valuation_key if valuation_key else "Close"
+
 
 	def __str__(self):
 
@@ -564,15 +846,18 @@ class Portfolio:
 		else:
 			return "Empty portfolio"
 
+
 	def __repr__(self):
 		return self.__str__()
+
 
 	def liquid(self):
 		"""
 		returns a cash position equal to the total available
 		liquidity of the portfolio
 		"""
-		return deepcopy(self.cash) + self.margin
+		return copy.copy(self.cash) + self.margin
+
 
 	def reset(self):
 		"""
@@ -581,6 +866,7 @@ class Portfolio:
 		start, initial = list(self.history.items())[0]
 		self.positions = initial
 		self.history = {start: initial}
+
 
 	def list_positions(self, positions=None):
 		"""
@@ -595,6 +881,7 @@ class Portfolio:
 
 		return result
 
+
 	def assets(self, positions=None):
 		"""
 		Returns a list of all assets owned in the portfolio
@@ -605,16 +892,14 @@ class Portfolio:
 
 		return assets
 
+
 	def update_history(self):
 		"""
 		Used to update the history of the portfolio on
 		the portfolio's current date.
 		"""
-		new_positions = deepcopy(self.positions)
-		for position in self.list_positions(new_positions):
-			position.asset.data = None
-			position.history = None
-		self.history[self.date.isoformat()] = new_positions
+		self.history[self.date.isoformat()] = copy.deepcopy(self.positions)
+
 
 	def synchronise(self):
 		"""
@@ -628,6 +913,7 @@ class Portfolio:
 			asset.verboseprint = self.verboseprint
 			asset.date = self.date
 
+
 	def next_day(self, valuate_at=None):
 		"""
 		Used to move the portfolio and all of its positions to the next
@@ -638,6 +924,7 @@ class Portfolio:
 		self.synchronise()
 		self.valuate(valuate_at)
 		self.update_history()
+
 
 	def invest(self, amount):
 		"""
@@ -656,6 +943,7 @@ class Portfolio:
 		# Update the principal and history
 		self.principal += getattr(amount, "value", amount)
 		self.update_history()
+
 
 	def withdraw(self, amount):
 		"""
@@ -680,6 +968,7 @@ class Portfolio:
 
 		return Cash(amount)
 
+
 	def check_validity(self, asset):
 		"""
 		Given an asset, check the asset's validity within this
@@ -702,6 +991,7 @@ class Portfolio:
 
 		# All assets are valid if no list is present
 		return True
+
 
 	def position(self, asset, short=False):
 		"""
@@ -743,6 +1033,7 @@ class Portfolio:
 		else:
 			return None
 
+
 	def collateral(self, asset, volume):
 		"""
 		Given an asset and volume, finds suitable collateral if any exists
@@ -762,6 +1053,7 @@ class Portfolio:
 				collateral to cover the asset at the given volume
 
 		"""
+		raise NotImplementedError
 
 		# Initialize collateral
 		collateral = None
@@ -777,6 +1069,7 @@ class Portfolio:
 			self.verboseprint("Unable to generate collateral for {}".format(asset))
 
 		return collateral
+
 
 	def buy(self, asset, volume, purchase_price=None):
 		"""
@@ -839,6 +1132,7 @@ class Portfolio:
 
 		self.synchronise()
 		self.update_history()
+
 
 	def sell(self, asset, volume, sale_price=None):
 		"""
@@ -905,6 +1199,7 @@ class Portfolio:
 		self.synchronise()
 		self.update_history()
 
+
 	def short(self, asset, volume, purchase_price=None, collateral=None):
 		"""
 		*** SHORT POSITIONS ONLY ***
@@ -924,19 +1219,21 @@ class Portfolio:
 			Modifies the portfolio's positions by shorting the asset,
 			entering the position
 		"""
-		# Used when purchase price differs from spot price, such as with
-		# options or stock discounts
-		purchase_price = purchase_price if purchase_price else asset.price
+		"""
+		--- OLD, UNDER REVISION ---
 
 		# Generate collateral for this short position if none is provided
-		"""
 		collateral = collateral if collateral else self.collateral(asset, volume)
 		if not collateral:
 			raise ValueError("Insufficient collateral for {} x {}".format(asset, volume))
 		"""
 
+		# Used when purchase price differs from spot price, such as with
+		# options or stock discounts
+		purchase_price = purchase_price if purchase_price else asset.price
+
 		# The position to be shorted
-		position = Position(asset, volume, self.date, True, collateral)
+		position = Position(asset, volume, self.date, True)
 		position.value = purchase_price * volume
 
 		# Find the current position in said asset, if any
@@ -974,6 +1271,7 @@ class Portfolio:
 		self.synchronise()
 		self.update_history()
 
+
 	def cover(self, asset, volume):
 		"""
 		*** SHORT POSITIONS ONLY ***
@@ -994,6 +1292,7 @@ class Portfolio:
 			exiting the position
 		"""
 		raise NotImplementedError
+
 
 	def exercise(self, options_position):
 		"""
@@ -1024,6 +1323,7 @@ class Portfolio:
 		self.positions[pos.asset.type].remove(pos)
 
 		self.update_history()
+
 
 	def assign(self, options_position):
 		"""
@@ -1075,7 +1375,6 @@ class Portfolio:
 					self.sell(pos.asset, pos.volume)
 
 
-
 	def valuate(self, column=None):
 		"""
 		Automatically updates the values of all positions
@@ -1084,9 +1383,10 @@ class Portfolio:
 
 		# Use the input column to evaluation, else last one used
 		column = column if column else self.valuate_at
-
-		# Evaluate assets before positions
 		"""
+		--- OLD, UNDER REVISION ---
+
+		# Evaluate assets before positions'
 		for asset in self.assets():
 			if asset.type in ["call", "put"]:
 				asset.valuate(column=column, rfr=self.risk_free_rate)	
@@ -1100,6 +1400,7 @@ class Portfolio:
 
 			# Expired options need to be dealt with
 			self._handle_expired_option(position)
+
 
 	def _value(self, date):
 		"""
@@ -1115,19 +1416,20 @@ class Portfolio:
 
 		return np.array([date, float(value)])
 
+
 	def value(self, history=None, date=None):
 		"""
 		Returns total portfolio value at a specified date.
 		If the date is not specified, returns an np.array containing
 		total portfolio value at each date.
 		"""
-
 		history = history if history else self.history
 
 		if date:
 			return self._value(date)[1]
 		else:
 			return np.array([self._value(date) for date in history])
+
 
 	def weekdays(self):
 		"""
@@ -1139,6 +1441,7 @@ class Portfolio:
 				history[date] = positions
 
 		return history
+
 
 	def clean_history(self):
 		"""
@@ -1231,6 +1534,7 @@ class Portfolio:
 
 		for date, positions in history.items():
 			self.print_positions(positions, date)
+			
 
 	def show_history(self, history=None):
 		"""

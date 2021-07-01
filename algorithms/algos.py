@@ -46,7 +46,7 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None, expiry_schedule
 
 	"""
 	# The spy options chain schedule, integer values correspond to days
-	# These values determine the day of expiry for a short sold call given
+	# These values determine the day of expiry for a sold call given
 	# the weekday it is being sold on
 	default_expiry_schedule = {
 		0: 2,
@@ -62,7 +62,7 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None, expiry_schedule
 
 	# Initialize portfolio
 	start_date, end_date = helpers.initialize(portfolio, start_date, end_date)
-	spy = finance.Stock("SPY", "data/spy.csv", start_date, dividend_yield=0.015, initial_key="Open")
+	spy = finance.Stock("SPY", start_date, "data/spy.csv", dividend_yield=0.015, initial_key="Open")
 
 	# Ending criteria, end_date is the last date we process
 	while portfolio.date <= end_date:
