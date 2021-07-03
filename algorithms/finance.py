@@ -171,7 +171,7 @@ class Asset:
 			by the asset. Can also be passed in as an isoformatted date
 			string: "YYYY-MM-DD"
 
-		data {pandas.dataframe}:
+		data {pandas.dataframe / numpy.array / Str}:
 			A pandas dataframe associated with this asset object,
 			used to track the asset price across time.
 	"""
@@ -192,7 +192,7 @@ class Asset:
 			self.data = pd.read_csv(data)
 		elif type(data) == np.array:
 			self.data = pd.DataFrame(data)
-		elif type(data) == type(None):
+		elif data == None:
 			self.data = pd.DataFrame()
 		elif type(data) == pd.DataFrame:
 			self.data = data
@@ -218,7 +218,7 @@ class Asset:
 		self.date = self.date + datetime.timedelta(days=1) if self.date else None
 
 
-	def valuate(self, column="Close"):
+	def valuate(self, column):
 		"""
 		Valuates the asset on the assets current date (self.date). Uses the
 		column input to determine which data to draw from
@@ -234,7 +234,7 @@ class Asset:
 		if self.date and not self.data.empty:
 
 			# Grabbing the row corresponding to the date
-			data = self.data.loc[self.data["Date"] == self.date.isoformat()]
+			data = self.data.loc[self.data["DATE"] == self.date.isoformat()]
 
 			# If there is data corresponding to the date, we use it for price
 			if not data.empty:
@@ -249,7 +249,37 @@ class Asset:
 
 
 class Stock(Asset):
+	"""
+	A class representing a stock, or a share of a publicly traded company.
+
+	Arguments:
+		name {Str}:
+			The stock's ticker, a 3 or 4 character string
+
+		date {datetime.date / str}:
+			A datetime.date or isoformatted datestring which acts as the first
+			point of valuation for the stock. Determines how the stock's price
+			will be initialized.
+
+		data {pandas.DataFrame / numpy.array / Str / None}:
+			A pandas.Dataframe which acts to valuate the stock at a given date
+			If passed in as a dataframe or numpy array, data will be used as
+			presented. If a string is passed in, it will be evaluated as a
+			datapath, and the stock will try to initialize a dataset by trying
+			to read a csv file at the filepath location. If no data is given,
+			the stock will try to initialize by searching for datasets within the
+			data folder that match the stock's ticker.
+
+		"""
 	def __init__(self, name, date=None, data=None, dividend_yield=0, initial_key="Close"):
+
+		# Ensure that name is a ticker
+		if isinstance(name, str) \
+		and len(name) < 5:
+			name = name.upper()
+		else:
+			raise ValueError("Stock failed to initialize, {} is an invalid ticker".format(name))
+
 
 		# Attribute initialization
 		super(Stock, self).__init__("stock", name, None, date, data, True)
@@ -262,14 +292,14 @@ class Stock(Asset):
 					self.data = pd.read_csv("data/{}.csv".format(self.name.lower()))
 					self.valuate(initial_key)
 				except:
-					raise ValueError("{} not initialized: incompatible dataset".format(self.name))
+					raise ValueError("{} not initialized: unable to find a compatible dataset".format(self.name))
 			else:
 				try:
 					self.data = pd.read_csv("data/{}.csv".format(self.name.lower()))
 					self.date = datetime.date.fromisoformat(self.data.iloc[0]["Date"])
 					self.valuate(initial_key)
 				except:
-					raise ValueError("{} not initialized: incompatible dataset".format(self.name))
+					raise ValueError("{} not initialized: unable to find a compatible dataset".format(self.name))
 
 		# In this case, we have a dataset with data in it, as well as a date
 		elif self.date:
@@ -315,6 +345,12 @@ class Stock(Asset):
 		self.date = datetime.date.fromisoformat(date) if type(date) == str else date
 
 		"""
+
+		def valuate(self, column="Close"):
+
+			# Stocks default to valuating at close, should be able to
+			# call valuate without column input.
+			super(Stock, self).valuate(column=column)
 
 
 class Option(Asset):
@@ -924,16 +960,41 @@ class Portfolio:
 			asset.date = self.date
 
 
-	def next_day(self, valuate_at=None):
+	def next_day(self, valuate_at=None, days=1):
 		"""
 		Used to move the portfolio and all of its positions to the next
 		day
+
+		Arguments:
+			valuate_at {str}:
+				A string that acts as a column header at which to valuate
+				all of the positions in the portfolio. Defaults to the last
+				input used by this function or self.valuate, whichever was
+				called more recently. If neither have been called on a
+				portfolio before, the default value is "Close"
+
+			days {int}:
+				An integer indicating the number of days to iterate through
+				in a single call. Default value is a single day.
+
 		"""
+
+		# Anything less than one day will revert to one day
+		if days < 1:
+			verboseprint("Can not progress {} days, instead progressing 1 day from {} to {}".format(
+				days,
+				self.date,
+				self.date + datetime.timedelta(days=days)))
+
+		# Determine what column value to use for valuation
 		valuate_at = valuate_at if valuate_at else self.valuate_at
-		self.date += datetime.timedelta(days=1)
-		self.synchronise()
-		self.valuate(valuate_at)
-		self.update_history()
+
+		# Do this days number of times
+		for x in range(max(days, 0)):
+			self.date += datetime.timedelta(days=1)
+			self.synchronise()
+			self.valuate(valuate_at)
+			self.update_history()
 
 
 	def invest(self, amount):

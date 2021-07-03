@@ -4,8 +4,8 @@ import pandas as pd
 import torch
 import datetime
 from algorithms import finance, models
-import algorithms.algorithm_helpers as helpers
-from data import load_data
+import algorithms.algotools as tools
+from data import datatools
 
 def spy_covered_calls(portfolio, start_date=None, end_date=None, expiry_schedule=None, strike_adjustment=None):
 	"""
@@ -61,7 +61,7 @@ def spy_covered_calls(portfolio, start_date=None, end_date=None, expiry_schedule
 	strike_adjustment = strike_adjustment if strike_adjustment else 1
 
 	# Initialize portfolio
-	start_date, end_date = helpers.initialize(portfolio, start_date, end_date)
+	start_date, end_date = tools.initialize(portfolio, start_date, end_date)
 	spy = finance.Stock("SPY", start_date, "data/spy.csv", dividend_yield=0.015, initial_key="Open")
 
 	# Ending criteria, end_date is the last date we process
