@@ -6,6 +6,6 @@ import datetime
 import time
 import copy
 
-print(datatools.format_asset_dates("1999/25/02"))
+print(datatools.isoformat_dates("1999/25/02"))
 
 print(finance.Stock("SPY"))

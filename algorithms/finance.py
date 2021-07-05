@@ -1,6 +1,6 @@
 import math
 import datetime
-import csv
+import typing
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -234,7 +234,7 @@ class Asset:
 		if self.date and not self.data.empty:
 
 			# Grabbing the row corresponding to the date
-			data = self.data.loc[self.data["DATE"] == self.date.isoformat()]
+			data = self.data.loc[self.data["Date"] == self.date.isoformat()]
 
 			# If there is data corresponding to the date, we use it for price
 			if not data.empty:
@@ -246,6 +246,10 @@ class Asset:
 		# such as market holidays and weekends. Not a terminating error.
 		else:
 			self.verboseprint("Missing data for valuation of {}".format(self) if self.date else "Missing date for valuation")
+
+class DataAsset(Asset):
+	def __init__(self):
+		pass
 
 
 class Stock(Asset):
